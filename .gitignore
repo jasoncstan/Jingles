@@ -4,6 +4,9 @@ tools/
 # Output audio files
 output/
 
+# ADB ROM cache (pulled from device)
+adb_cache/
+
 # User config (contains local paths)
 jingles_config.json
 

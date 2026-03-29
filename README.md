@@ -17,6 +17,7 @@ Jingles scans a ROM directory, extracts or captures banner/title audio from each
 - **vgmstream** support for hundreds of game audio container formats
 - **FFmpeg generic fallback** for any file with an extractable audio stream
 - **Filter folder** — optionally limit processing to ROMs matching names in a reference folder or text file (supports MTP devices)
+- **ADB device support** — scan and pull ROMs directly from an Android handheld (e.g., Ayn Thor, Odin, Retroid) over USB, with optional push-back of generated MP3s to the device
 - **Dark-themed tkinter GUI** with progress tracking, per-file status, and log output
 
 ## Supported Platforms
@@ -48,6 +49,7 @@ Place these in a `tools/` directory alongside the project (not included in the r
 | [vgmstream](https://github.com/vgmstream/vgmstream) | Decoding hundreds of game audio container formats | ISC | [GitHub Releases](https://github.com/vgmstream/vgmstream/releases) |
 | [RetroArch](https://www.retroarch.com/) | Headless emulation for systems without embedded banner audio | GPL-3.0 | [retroarch.com](https://www.retroarch.com/index.php?page=platforms) |
 | [PCSX2](https://pcsx2.net/) | PlayStation 2 emulation (standalone, not the RetroArch core) | GPL-3.0 | [GitHub Releases](https://github.com/PCSX2/pcsx2/releases) |
+| [ADB (Android Debug Bridge)](https://developer.android.com/tools/adb) | Pull ROMs from / push MP3s to Android devices over USB | Apache 2.0 | [SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools#downloads) |
 
 ### Tool Setup
 
@@ -72,9 +74,64 @@ Jingles/
         ps2-0230a-20080220.bin   (USA)
         ps2-0230e-20080220.bin   (EUR)
         ps2-0230j-20080220.bin   (JPN)
+    platform-tools/              (optional: ADB device support)
+      adb.exe
+      AdbWinApi.dll
+      AdbWinUsbApi.dll
 ```
 
 RetroArch cores can be downloaded from the [libretro buildbot](https://buildbot.libretro.com/nightly/windows/x86_64/latest/). Only cores for systems you want to process are needed.
+
+### ADB Setup (Optional — for pulling ROMs directly from a device)
+
+ADB is only needed if you want to pull ROMs directly from an Android handheld (Ayn Thor, Odin, Retroid Pocket, etc.) over USB without manually copying them to your PC first. If you already have your ROMs on a local or network drive, you can skip this section entirely.
+
+ADB lets Jingles browse your device's storage, pull selected ROMs for processing, and optionally push the generated MP3s back to the device.
+
+#### 1. Install ADB
+
+Download the **SDK Platform-Tools** zip from Google:
+https://developer.android.com/tools/releases/platform-tools#downloads
+
+Extract it and either:
+- Place `adb.exe` (and its companion files `AdbWinApi.dll`, `AdbWinUsbApi.dll`) into the `tools/` directory alongside Jingles, **or**
+- Extract the `platform-tools/` folder into `tools/` so the layout is `tools/platform-tools/adb.exe`, **or**
+- Add the extracted folder to your system PATH
+
+Jingles will auto-detect ADB in any of these locations.
+
+#### 2. Enable Developer Mode on Your Device
+
+1. Open **Settings** on your Android device
+2. Go to **About phone** (or **About device** / **System → About**)
+3. Find **Build number** and tap it **7 times** — you will see a toast message saying "You are now a developer!"
+4. Go back to **Settings → System → Developer options** (the location varies by device; on some devices it appears directly in Settings)
+
+#### 3. Enable USB Debugging
+
+1. In **Developer options**, find **USB debugging** and toggle it **on**
+2. Connect the device to your PC via USB
+3. On the device, a prompt will appear: **"Allow USB debugging?"** — tap **Allow** (check "Always allow from this computer" to avoid future prompts)
+4. If prompted for a USB connection mode on the device, select **File Transfer (MTP)** — this does not affect ADB but ensures the device stays awake
+
+#### 4. Verify the Connection
+
+Open a terminal and run:
+```bash
+adb devices
+```
+You should see your device listed (e.g., `571e6154  device`). If it shows `unauthorized`, check the device screen for the USB debugging authorization prompt.
+
+#### 5. Using ADB in Jingles
+
+1. Launch Jingles and switch the **Source** to **ADB Device**
+2. Select your device from the dropdown (click **Refresh** if it doesn't appear)
+3. Click **Browse…** to navigate the device filesystem — shortcut buttons for Internal storage, SD Card, and ROM folders are auto-detected
+4. Click **Scan ROMs** to discover ROMs on the device
+5. Click **Start** — Jingles will pull the selected ROMs to a local cache, extract audio, and generate MP3s
+6. Optionally check **Push MP3s to device** and set a target folder to copy the generated jingles back to the device
+
+Pulled ROMs are cached locally in `adb_cache/` so re-runs skip files that haven't changed on the device.
 
 ## Usage
 
@@ -137,4 +194,5 @@ Jingles does not bundle or redistribute any third-party tools. The following too
 - **vgmstream** — Licensed under the [ISC License](https://github.com/vgmstream/vgmstream/blob/master/COPYING). Copyright (c) the vgmstream contributors.
 - **RetroArch** — Licensed under [GPL-3.0](https://github.com/libretro/RetroArch/blob/master/COPYING). Copyright (c) the libretro team. Individual cores have their own licenses.
 - **PCSX2** — Licensed under [GPL-3.0](https://github.com/PCSX2/pcsx2/blob/master/COPYING.GPLv3). Copyright (c) the PCSX2 team.
+- **ADB (Android Debug Bridge)** — Licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0). Copyright (c) Google LLC.
 

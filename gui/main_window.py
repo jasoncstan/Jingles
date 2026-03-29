@@ -11,6 +11,8 @@ from utils import (find_ffmpeg, find_7z, find_vgmstream, find_retroarch,
                    load_config, save_config, OUTPUT_BASE, get_mp3_path,
                    PLATFORM_NAMES)
 from worker import ProcessingWorker
+from adb import (find_adb, list_devices, list_directory, scan_device_roms,
+                 pull_file, push_file, AdbRomCache)
 
 # ── Colour palette ────────────────────────────────────────────────────────────
 BG       = '#1E1E2E'
@@ -39,6 +41,7 @@ class JinglesApp(tk.Tk):
         self._7z                  = find_7z()
         self._vgmstream           = find_vgmstream()
         self._retroarch, self._retroarch_cores = find_retroarch()
+        self._adb                 = find_adb()
         self._worker: ProcessingWorker = None
         self._msg_queue           = queue.Queue()
         self._rom_paths: list     = []
@@ -49,12 +52,31 @@ class JinglesApp(tk.Tk):
         self._recursive_var = tk.BooleanVar(value=True)
         self._count_var     = tk.StringVar(value='No ROMs loaded')
 
+        # ADB state
+        self._source_mode       = tk.StringVar(value='local')
+        self._adb_serial        = tk.StringVar()
+        self._adb_remote_dir    = tk.StringVar()
+        self._adb_push_var      = tk.BooleanVar(value=False)
+        self._adb_push_dir      = tk.StringVar()
+        self._adb_remote_paths  = []     # parallel to _rom_paths in ADB mode
+        self._adb_cache: AdbRomCache = None
+        self._adb_pull_thread   = None
+        self._adb_push_thread   = None
+
         # Restore last directories
         cfg = load_config()
         if cfg.get('last_input_dir'):
             self._input_var.set(cfg['last_input_dir'])
         if cfg.get('last_filter_dir'):
             self._filter_var.set(cfg['last_filter_dir'])
+        if cfg.get('last_source_mode'):
+            self._source_mode.set(cfg['last_source_mode'])
+        if cfg.get('last_adb_serial'):
+            self._adb_serial.set(cfg['last_adb_serial'])
+        if cfg.get('last_adb_remote_dir'):
+            self._adb_remote_dir.set(cfg['last_adb_remote_dir'])
+        if cfg.get('last_adb_push_dir'):
+            self._adb_push_dir.set(cfg['last_adb_push_dir'])
 
         self._build_ui()
         self._apply_styles()
@@ -78,6 +100,8 @@ class JinglesApp(tk.Tk):
         self._vgs_lbl.pack(side='right', padx=(0, 8))
         self._ra_lbl = tk.Label(top, font=('Segoe UI', 9), bg=BG_PANEL)
         self._ra_lbl.pack(side='right', padx=(0, 8))
+        self._adb_lbl = tk.Label(top, font=('Segoe UI', 9), bg=BG_PANEL)
+        self._adb_lbl.pack(side='right', padx=(0, 8))
         tk.Button(top, text='BIOS…', command=self._open_bios_manager,
                   bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
                   font=('Segoe UI', 9), activebackground='#3A3A5D'
@@ -88,27 +112,90 @@ class JinglesApp(tk.Tk):
         cfg_frame = tk.Frame(self, bg=BG, padx=12, pady=8)
         cfg_frame.pack(fill='x')
 
-        # ROM source folder
-        tk.Label(cfg_frame, text='ROM Folder:', bg=BG, fg=FG,
+        # Source selector row
+        src_row = tk.Frame(cfg_frame, bg=BG)
+        src_row.grid(row=0, column=0, columnspan=3, sticky='w', pady=3)
+        tk.Label(src_row, text='Source:', bg=BG, fg=FG,
                  font=('Segoe UI', 10), width=14, anchor='e'
-                 ).grid(row=0, column=0, sticky='e', padx=(0, 6), pady=3)
-        tk.Entry(cfg_frame, textvariable=self._input_var, bg=BG_ENTRY, fg=FG,
-                 insertbackground=FG, relief='flat', font=('Segoe UI', 10)
-                 ).grid(row=0, column=1, sticky='ew', pady=3)
-        tk.Button(cfg_frame, text='Browse…', command=self._browse_input,
+                 ).pack(side='left', padx=(0, 6))
+        tk.Radiobutton(src_row, text='Local Folder', variable=self._source_mode,
+                       value='local', bg=BG, fg=FG, selectcolor=BG_ENTRY,
+                       activebackground=BG, activeforeground=FG,
+                       font=('Segoe UI', 10),
+                       command=self._on_source_changed
+                       ).pack(side='left', padx=(0, 12))
+        tk.Radiobutton(src_row, text='ADB Device', variable=self._source_mode,
+                       value='adb', bg=BG, fg=FG, selectcolor=BG_ENTRY,
+                       activebackground=BG, activeforeground=FG,
+                       font=('Segoe UI', 10),
+                       command=self._on_source_changed
+                       ).pack(side='left')
+
+        # --- Local folder widgets (row 1) ---
+        self._local_lbl = tk.Label(cfg_frame, text='ROM Folder:', bg=BG, fg=FG,
+                 font=('Segoe UI', 10), width=14, anchor='e')
+        self._local_lbl.grid(row=1, column=0, sticky='e', padx=(0, 6), pady=3)
+        self._local_entry = tk.Entry(cfg_frame, textvariable=self._input_var,
+                 bg=BG_ENTRY, fg=FG,
+                 insertbackground=FG, relief='flat', font=('Segoe UI', 10))
+        self._local_entry.grid(row=1, column=1, sticky='ew', pady=3)
+        self._local_browse = tk.Button(cfg_frame, text='Browse…',
+                  command=self._browse_input,
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 9), activebackground='#3A3A5D')
+        self._local_browse.grid(row=1, column=2, padx=(6, 0), pady=3)
+
+        # --- ADB device widgets (row 1, hidden by default) ---
+        self._adb_dev_lbl = tk.Label(cfg_frame, text='Device:', bg=BG, fg=FG,
+                 font=('Segoe UI', 10), width=14, anchor='e')
+        self._adb_dev_display = tk.StringVar()  # display label, not serial
+        self._adb_dev_combo = ttk.Combobox(cfg_frame,
+                 textvariable=self._adb_dev_display,
+                 state='readonly', font=('Segoe UI', 10))
+        self._adb_dev_btns = tk.Frame(cfg_frame, bg=BG)
+        tk.Button(self._adb_dev_btns, text='Refresh',
+                  command=self._refresh_adb_devices,
                   bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
                   font=('Segoe UI', 9), activebackground='#3A3A5D'
-                  ).grid(row=0, column=2, padx=(6, 0), pady=3)
+                  ).pack(side='left')
+
+        # ADB remote folder (row 2 in ADB mode)
+        self._adb_dir_lbl = tk.Label(cfg_frame, text='Device Folder:', bg=BG, fg=FG,
+                 font=('Segoe UI', 10), width=14, anchor='e')
+        self._adb_dir_entry = tk.Entry(cfg_frame,
+                 textvariable=self._adb_remote_dir, bg=BG_ENTRY, fg=FG,
+                 insertbackground=FG, relief='flat', font=('Segoe UI', 10))
+        self._adb_dir_btns = tk.Frame(cfg_frame, bg=BG)
+        tk.Button(self._adb_dir_btns, text='Browse…',
+                  command=self._browse_device_folder,
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 9), activebackground='#3A3A5D'
+                  ).pack(side='left')
+
+        # ADB push-back row (row 3 in ADB mode)
+        self._adb_push_frame = tk.Frame(cfg_frame, bg=BG)
+        ttk.Checkbutton(self._adb_push_frame, text='Push MP3s to device:',
+                        variable=self._adb_push_var,
+                        style='Jingles.TCheckbutton').pack(side='left')
+        tk.Entry(self._adb_push_frame, textvariable=self._adb_push_dir,
+                 bg=BG_ENTRY, fg=FG, insertbackground=FG, relief='flat',
+                 font=('Segoe UI', 9), width=40
+                 ).pack(side='left', padx=(6, 0), fill='x', expand=True)
+        tk.Button(self._adb_push_frame, text='Browse…',
+                  command=self._browse_device_push_folder,
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 9), activebackground='#3A3A5D'
+                  ).pack(side='left', padx=(4, 0))
 
         # Filter folder (optional — limits scan to matching names)
         tk.Label(cfg_frame, text='Filter Folder:', bg=BG, fg=FG,
                  font=('Segoe UI', 10), width=14, anchor='e'
-                 ).grid(row=1, column=0, sticky='e', padx=(0, 6), pady=3)
+                 ).grid(row=5, column=0, sticky='e', padx=(0, 6), pady=3)
         tk.Entry(cfg_frame, textvariable=self._filter_var, bg=BG_ENTRY, fg=FG,
                  insertbackground=FG, relief='flat', font=('Segoe UI', 10)
-                 ).grid(row=1, column=1, sticky='ew', pady=3)
+                 ).grid(row=5, column=1, sticky='ew', pady=3)
         filter_btns = tk.Frame(cfg_frame, bg=BG)
-        filter_btns.grid(row=1, column=2, padx=(6, 0), pady=3)
+        filter_btns.grid(row=5, column=2, padx=(6, 0), pady=3)
         tk.Button(filter_btns, text='Browse…', command=self._browse_filter,
                   bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
                   font=('Segoe UI', 9), activebackground='#3A3A5D'
@@ -121,18 +208,18 @@ class JinglesApp(tk.Tk):
         # Output folder (read-only label + Open button)
         tk.Label(cfg_frame, text='Output Folder:', bg=BG, fg=FG,
                  font=('Segoe UI', 10), width=14, anchor='e'
-                 ).grid(row=2, column=0, sticky='e', padx=(0, 6), pady=3)
+                 ).grid(row=6, column=0, sticky='e', padx=(0, 6), pady=3)
         tk.Label(cfg_frame, text=OUTPUT_BASE, bg=BG_ENTRY, fg=FG_DIM,
                  font=('Segoe UI', 9), anchor='w', relief='flat'
-                 ).grid(row=2, column=1, sticky='ew', pady=3, ipady=4, ipadx=4)
+                 ).grid(row=6, column=1, sticky='ew', pady=3, ipady=4, ipadx=4)
         tk.Button(cfg_frame, text='Open…', command=self._open_output,
                   bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
                   font=('Segoe UI', 9), activebackground='#3A3A5D'
-                  ).grid(row=2, column=2, padx=(6, 0), pady=3)
+                  ).grid(row=6, column=2, padx=(6, 0), pady=3)
 
         # Options row
         opt_row = tk.Frame(cfg_frame, bg=BG)
-        opt_row.grid(row=3, column=0, columnspan=3, sticky='w', pady=2)
+        opt_row.grid(row=7, column=0, columnspan=3, sticky='w', pady=2)
         ttk.Checkbutton(opt_row, text='Scan subfolders',
                         variable=self._recursive_var,
                         style='Jingles.TCheckbutton').pack(side='left')
@@ -140,6 +227,9 @@ class JinglesApp(tk.Tk):
                  bg=BG, fg=FG_DIM, font=('Segoe UI', 9)).pack(side='left', padx=16)
 
         cfg_frame.columnconfigure(1, weight=1)
+
+        # Show/hide based on initial source mode
+        self._on_source_changed()
 
         # ── Action buttons ───────────────────────────────────────────────────
         btn_bar = tk.Frame(self, bg=BG, padx=12, pady=4)
@@ -303,6 +393,243 @@ class JinglesApp(tk.Tk):
         else:
             self._ra_lbl.config(text='RetroArch ✗', fg=WARNING)
 
+        self._adb_lbl.config(
+            text='ADB ✓' if self._adb else 'ADB ✗',
+            fg=SUCCESS if self._adb else FG_DIM)
+
+    # ── Source mode switching ─────────────────────────────────────────────────
+
+    def _on_source_changed(self):
+        """Show/hide widgets based on the selected source mode."""
+        mode = self._source_mode.get()
+        if mode == 'local':
+            # Show local widgets
+            self._local_lbl.grid(row=1, column=0, sticky='e', padx=(0, 6), pady=3)
+            self._local_entry.grid(row=1, column=1, sticky='ew', pady=3)
+            self._local_browse.grid(row=1, column=2, padx=(6, 0), pady=3)
+            # Hide ADB widgets
+            self._adb_dev_lbl.grid_remove()
+            self._adb_dev_combo.grid_remove()
+            self._adb_dev_btns.grid_remove()
+            self._adb_dir_lbl.grid_remove()
+            self._adb_dir_entry.grid_remove()
+            self._adb_dir_btns.grid_remove()
+            self._adb_push_frame.grid_remove()
+        else:
+            # Hide local widgets
+            self._local_lbl.grid_remove()
+            self._local_entry.grid_remove()
+            self._local_browse.grid_remove()
+            # Show ADB widgets
+            self._adb_dev_lbl.grid(row=1, column=0, sticky='e', padx=(0, 6), pady=3)
+            self._adb_dev_combo.grid(row=1, column=1, sticky='ew', pady=3)
+            self._adb_dev_btns.grid(row=1, column=2, padx=(6, 0), pady=3)
+            self._adb_dir_lbl.grid(row=2, column=0, sticky='e', padx=(0, 6), pady=3)
+            self._adb_dir_entry.grid(row=2, column=1, sticky='ew', pady=3)
+            self._adb_dir_btns.grid(row=2, column=2, padx=(6, 0), pady=3)
+            self._adb_push_frame.grid(row=3, column=0, columnspan=3,
+                                      sticky='ew', pady=3)
+            # Auto-refresh device list
+            self._refresh_adb_devices()
+
+    def _refresh_adb_devices(self):
+        """Populate the device combobox with connected ADB devices."""
+        if not self._adb:
+            self._adb_dev_combo['values'] = ['(ADB not found)']
+            self._adb_dev_combo.set('(ADB not found)')
+            return
+
+        devices = list_devices(self._adb)
+        if not devices:
+            self._adb_dev_combo['values'] = ['(no devices)']
+            self._adb_dev_combo.set('(no devices)')
+            return
+
+        labels = []
+        serials = []
+        for d in devices:
+            model = d['model'] or d['device'] or d['serial']
+            label = f"{model} ({d['serial']})"
+            labels.append(label)
+            serials.append(d['serial'])
+
+        self._adb_dev_combo['values'] = labels
+        self._adb_device_serials = serials
+
+        # Restore previous selection if still connected
+        prev = self._adb_serial.get()
+        if prev in serials:
+            idx = serials.index(prev)
+            self._adb_dev_combo.current(idx)
+        else:
+            self._adb_dev_combo.current(0)
+            self._adb_serial.set(serials[0])
+
+        # Bind selection to update serial
+        self._adb_dev_combo.bind('<<ComboboxSelected>>',
+                                 self._on_device_selected)
+
+    def _on_device_selected(self, _event=None):
+        """Update the stored serial when the user picks a device."""
+        idx = self._adb_dev_combo.current()
+        if hasattr(self, '_adb_device_serials') and 0 <= idx < len(self._adb_device_serials):
+            self._adb_serial.set(self._adb_device_serials[idx])
+
+    # ── Device folder browser ────────────────────────────────────────────────
+
+    def _browse_device_folder(self):
+        """Open a dialog to browse folders on the ADB device."""
+        self._open_device_browser(self._adb_remote_dir)
+
+    def _browse_device_push_folder(self):
+        """Open a dialog to browse folders on the ADB device for push target."""
+        self._open_device_browser(self._adb_push_dir)
+
+    def _open_device_browser(self, target_var: tk.StringVar):
+        """Tree-view dialog for browsing device folders."""
+        serial = self._adb_serial.get()
+        if not self._adb or not serial or serial.startswith('('):
+            messagebox.showwarning('No Device',
+                                   'Connect an ADB device first.')
+            return
+
+        dlg = tk.Toplevel(self)
+        dlg.title('Browse Device Folder')
+        dlg.geometry('500x450')
+        dlg.configure(bg=BG)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        tk.Label(dlg, text='Select a folder on the device',
+                 font=('Segoe UI', 11, 'bold'), bg=BG, fg=ACCENT
+                 ).pack(anchor='w', padx=12, pady=(10, 2))
+
+        # Quick-nav buttons — auto-detect storage volumes on the device
+        nav = tk.Frame(dlg, bg=BG)
+        nav.pack(fill='x', padx=12, pady=(0, 6))
+
+        nav_items = [('Internal', '/sdcard')]
+        # Detect SD card and other volumes under /storage
+        sd_paths = []
+        storage_entries = list_directory(self._adb, serial, '/storage')
+        for e in storage_entries:
+            if not e['is_dir']:
+                continue
+            name = e['name']
+            # Skip internal storage aliases and Android internals
+            if name in ('emulated', 'self'):
+                continue
+            # This is likely an SD card (e.g. "3830-6461")
+            sd_path = f'/storage/{name}'
+            nav_items.append(('SD Card', sd_path))
+            sd_paths.append(sd_path)
+
+        # Add Roms folder shortcuts (check SD cards first, then internal)
+        for base in sd_paths + ['/sdcard']:
+            for roms_name in ('Roms', 'roms', 'RetroArch/roms'):
+                check_path = f'{base}/{roms_name}'
+                probe = list_directory(self._adb, serial, check_path)
+                if probe:
+                    label = 'SD Roms' if base != '/sdcard' else 'Roms'
+                    nav_items.append((label, check_path))
+                    break
+
+        for label, path in nav_items:
+            tk.Button(nav, text=label,
+                      command=lambda p=path: _navigate(p),
+                      bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                      font=('Segoe UI', 8), activebackground='#3A3A5D'
+                      ).pack(side='left', padx=(0, 4))
+
+        # Current path display
+        path_var = tk.StringVar(value='/sdcard')
+        path_frame = tk.Frame(dlg, bg=BG)
+        path_frame.pack(fill='x', padx=12, pady=(0, 4))
+        tk.Label(path_frame, text='Path:', bg=BG, fg=FG_DIM,
+                 font=('Segoe UI', 9)).pack(side='left')
+        path_entry = tk.Entry(path_frame, textvariable=path_var,
+                              bg=BG_ENTRY, fg=FG, insertbackground=FG,
+                              relief='flat', font=('Segoe UI', 9))
+        path_entry.pack(side='left', fill='x', expand=True, padx=(4, 4))
+        tk.Button(path_frame, text='Go',
+                  command=lambda: _navigate(path_var.get().strip()),
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 9), activebackground='#3A3A5D'
+                  ).pack(side='left')
+
+        # Folder list
+        list_frame = tk.Frame(dlg, bg=BG)
+        list_frame.pack(fill='both', expand=True, padx=12, pady=(0, 6))
+        listbox = tk.Listbox(list_frame, bg=BG_PANEL, fg=FG,
+                             font=('Consolas', 10), relief='flat',
+                             selectbackground='#313155', selectforeground=FG)
+        sb = ttk.Scrollbar(list_frame, orient='vertical', command=listbox.yview)
+        listbox.configure(yscrollcommand=sb.set)
+        listbox.pack(side='left', fill='both', expand=True)
+        sb.pack(side='right', fill='y')
+
+        current_entries = []
+
+        def _navigate(path):
+            path = path.rstrip('/')
+            if not path:
+                path = '/'
+            path_var.set(path)
+            listbox.delete(0, 'end')
+            current_entries.clear()
+
+            # Add parent entry
+            if path != '/':
+                listbox.insert('end', '  ..')
+                current_entries.append({'name': '..', 'is_dir': True})
+
+            entries = list_directory(self._adb, serial, path)
+            for e in entries:
+                prefix = '  📁 ' if e['is_dir'] else '  📄 '
+                listbox.insert('end', prefix + e['name'])
+                current_entries.append(e)
+
+            if not entries and path != '/':
+                listbox.insert('end', '  (empty or inaccessible)')
+
+        def _on_double_click(_event):
+            sel = listbox.curselection()
+            if not sel:
+                return
+            entry = current_entries[sel[0]]
+            if not entry['is_dir']:
+                return
+            cur = path_var.get().rstrip('/')
+            if entry['name'] == '..':
+                parent = '/'.join(cur.split('/')[:-1])
+                _navigate(parent or '/')
+            else:
+                _navigate(cur + '/' + entry['name'])
+
+        listbox.bind('<Double-1>', _on_double_click)
+
+        # Buttons
+        btn_frame = tk.Frame(dlg, bg=BG)
+        btn_frame.pack(fill='x', padx=12, pady=(0, 10))
+        tk.Button(btn_frame, text='Select This Folder', width=16,
+                  command=lambda: _select(),
+                  bg=SUCCESS, fg=BG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 10, 'bold'), activebackground='#8DC98A'
+                  ).pack(side='right', padx=(8, 0))
+        tk.Button(btn_frame, text='Cancel', width=10,
+                  command=dlg.destroy,
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 10), activebackground='#3A3A5D'
+                  ).pack(side='right')
+
+        def _select():
+            target_var.set(path_var.get().strip())
+            dlg.destroy()
+
+        # Initial navigation
+        initial = target_var.get().strip() or '/sdcard'
+        _navigate(initial)
+
     # ── Browse / Open handlers ────────────────────────────────────────────────
 
     def _browse_input(self):
@@ -422,6 +749,12 @@ if ($folder -ne $null) {
     # ── Scan ─────────────────────────────────────────────────────────────────
 
     def _on_scan(self):
+        mode = self._source_mode.get()
+
+        if mode == 'adb':
+            self._on_scan_adb()
+            return
+
         folder = self._input_var.get().strip()
         if not folder or not os.path.isdir(folder):
             messagebox.showwarning('No Folder', 'Please select a valid ROM folder first.')
@@ -429,10 +762,12 @@ if ($folder -ne $null) {
 
         filter_dir = self._filter_var.get().strip()
         save_config(last_input_dir=folder,
-                    last_filter_dir=filter_dir if filter_dir else None)
+                    last_filter_dir=filter_dir if filter_dir else None,
+                    last_source_mode=mode)
 
         self._tree.delete(*self._tree.get_children())
         self._rom_paths = []
+        self._adb_remote_paths = []
         self._progress['value'] = 0
         self._status_var.set('Scanning…')
         self.update_idletasks()
@@ -471,6 +806,77 @@ if ($folder -ne $null) {
         if n > 0:
             self._start_btn.config(state='normal')
         self._log_msg(f'Scanned {folder!r}: {n} ROMs found.')
+
+    def _on_scan_adb(self):
+        """Scan ROMs on the connected ADB device."""
+        serial = self._adb_serial.get()
+        remote_dir = self._adb_remote_dir.get().strip()
+        if not self._adb or not serial or serial.startswith('('):
+            messagebox.showwarning('No Device',
+                                   'Connect an ADB device and select it first.')
+            return
+        if not remote_dir:
+            messagebox.showwarning('No Folder',
+                                   'Enter or browse to a folder on the device.')
+            return
+
+        filter_dir = self._filter_var.get().strip()
+        save_config(last_adb_serial=serial,
+                    last_adb_remote_dir=remote_dir,
+                    last_adb_push_dir=self._adb_push_dir.get().strip(),
+                    last_filter_dir=filter_dir if filter_dir else None,
+                    last_source_mode='adb')
+
+        self._tree.delete(*self._tree.get_children())
+        self._rom_paths = []
+        self._adb_remote_paths = []
+        self._progress['value'] = 0
+        self._status_var.set('Scanning device…')
+        self.update_idletasks()
+
+        self._log_msg(f'Scanning ADB device {serial}: {remote_dir}')
+        remote_roms = scan_device_roms(
+            self._adb, serial, remote_dir, self._recursive_var.get())
+
+        # Apply filter
+        if filter_dir and (os.path.isdir(filter_dir) or os.path.isfile(filter_dir)):
+            filter_stems = self._load_filter_stems(filter_dir)
+            if filter_stems is not None:
+                before = len(remote_roms)
+                remote_roms = [
+                    r for r in remote_roms
+                    if os.path.splitext(os.path.basename(r))[0].lower() in filter_stems
+                ]
+                self._log_msg(
+                    f'Filter applied: {len(remote_roms)} of {before} ROMs matched')
+
+        self._adb_remote_paths = remote_roms
+        # Use remote paths as iids, but store a parallel rom_paths list
+        # that will be filled with local cached paths at start time.
+        self._rom_paths = remote_roms  # placeholder — replaced during pull
+
+        from pathlib import PurePosixPath
+        for rpath in remote_roms:
+            posix = PurePosixPath(rpath)
+            stem = os.path.splitext(posix.name)[0]
+            ext = posix.suffix.lower()
+            platform = get_platform(rpath)
+
+            # Check if MP3 already exists locally
+            mp3_exists = os.path.isfile(get_mp3_path(rpath, ext))
+            status = 'Already Done' if mp3_exists else 'Pending'
+            tag    = 'exists'       if mp3_exists else 'pending'
+
+            self._tree.insert('', 'end', iid=rpath,
+                              values=('\u2611', stem, platform, status),
+                              tags=(tag, 'selected'))
+
+        n = len(remote_roms)
+        self._count_var.set(f'{n} ROM{"s" if n != 1 else ""} found')
+        self._status_var.set(f'Scan complete: {n} ROMs on device')
+        if n > 0:
+            self._start_btn.config(state='normal')
+        self._log_msg(f'Found {n} ROMs on device in {remote_dir!r}.')
 
     # ── Start / Stop ─────────────────────────────────────────────────────────
 
@@ -515,8 +921,15 @@ if ($folder -ne $null) {
                 self._tree.item(iid, values=(vals[0], vals[1], vals[2], 'Pending'),
                                 tags=tags)
 
+        if self._source_mode.get() == 'adb':
+            self._start_adb_pull(selected_paths)
+        else:
+            self._start_worker(selected_paths)
+
+    def _start_worker(self, rom_paths: list):
+        """Launch the processing worker on local ROM paths."""
         self._worker = ProcessingWorker(
-            rom_paths=selected_paths,
+            rom_paths=rom_paths,
             ffmpeg_path=self._ffmpeg,
             seven_zip_path=self._7z,
             vgmstream_path=self._vgmstream,
@@ -525,9 +938,93 @@ if ($folder -ne $null) {
             msg_queue=self._msg_queue,
         )
         self._worker.start()
-        self._log_msg(f'Processing {len(selected_paths)} ROMs → {OUTPUT_BASE}')
+        self._log_msg(f'Processing {len(rom_paths)} ROMs → {OUTPUT_BASE}')
+
+    # ── ADB pull phase ───────────────────────────────────────────────────────
+
+    def _start_adb_pull(self, selected_remote_paths: list):
+        """Pull selected ROMs from ADB device, then start the worker."""
+        import threading
+
+        serial = self._adb_serial.get()
+        self._adb_cache = AdbRomCache(self._adb, serial)
+        self._cancel_event = threading.Event()
+
+        self._log_msg(f'Pulling {len(selected_remote_paths)} ROMs from device…')
+        self._status_var.set('Pulling from device…')
+
+        def _pull_thread():
+            total = len(selected_remote_paths)
+            local_paths = []    # (remote_path, local_path) pairs
+            failed_pulls = []
+
+            for i, rpath in enumerate(selected_remote_paths):
+                if self._cancel_event.is_set():
+                    self._msg_queue.put(('log', 'ADB pull cancelled.'))
+                    self._msg_queue.put(('adb_pull_done', ([], failed_pulls, True)))
+                    return
+
+                stem = os.path.splitext(os.path.basename(rpath))[0]
+                self._msg_queue.put(('progress', (i, total, f'Pull: {stem}')))
+                self._msg_queue.put(('file_status', (rpath, 'Pulling…')))
+
+                local = self._adb_cache.ensure_local(
+                    rpath, cancel_event=self._cancel_event)
+                if local:
+                    local_paths.append((rpath, local))
+                    self._msg_queue.put(('file_status', (rpath, 'Pending')))
+                else:
+                    failed_pulls.append(rpath)
+                    self._msg_queue.put(('file_status', (rpath, 'Pull Failed')))
+                    self._msg_queue.put(('log', f'Failed to pull: {stem}'))
+
+            self._msg_queue.put(('progress', (total, total, '')))
+            self._msg_queue.put(('adb_pull_done', (local_paths, failed_pulls, False)))
+
+        self._adb_pull_thread = threading.Thread(target=_pull_thread, daemon=True)
+        self._adb_pull_thread.start()
+
+    def _start_adb_push(self, mp3_paths: list):
+        """Push generated MP3s back to the device after processing."""
+        import threading
+
+        serial = self._adb_serial.get()
+        push_dir = self._adb_push_dir.get().strip()
+        if not push_dir or not serial:
+            return
+
+        self._log_msg(f'Pushing {len(mp3_paths)} MP3s to device: {push_dir}')
+        self._status_var.set('Pushing to device…')
+
+        def _push_thread():
+            total = len(mp3_paths)
+            pushed = 0
+            for i, local_mp3 in enumerate(mp3_paths):
+                if not os.path.isfile(local_mp3):
+                    continue
+                basename = os.path.basename(local_mp3)
+                # Preserve platform subfolder structure
+                rel = os.path.relpath(local_mp3, OUTPUT_BASE)
+                remote_target = push_dir.rstrip('/') + '/' + rel.replace('\\', '/')
+
+                self._msg_queue.put(('progress', (i, total, f'Push: {basename}')))
+                if push_file(self._adb, serial, local_mp3, remote_target):
+                    pushed += 1
+                else:
+                    self._msg_queue.put(('log', f'Push failed: {basename}'))
+
+            self._msg_queue.put(('progress', (total, total, '')))
+            self._msg_queue.put(('log',
+                f'Pushed {pushed}/{total} MP3s to {push_dir}'))
+            self._msg_queue.put(('adb_push_done', pushed))
+
+        self._adb_push_thread = threading.Thread(target=_push_thread, daemon=True)
+        self._adb_push_thread.start()
 
     def _on_stop(self):
+        # Cancel ADB pull/push if in progress
+        if hasattr(self, '_cancel_event'):
+            self._cancel_event.set()
         if self._worker and self._worker.is_alive():
             self._worker.cancel()
             self._status_var.set('Stopping…')
@@ -552,8 +1049,44 @@ if ($folder -ne $null) {
             self._status_var.set(
                 f'[{idx + 1}/{total}] {stem[:50]}' if stem else f'Done ({total} files)')
 
+        elif msg_type == 'adb_pull_done':
+            local_paths, failed_pulls, cancelled = data
+            if cancelled:
+                self._status_var.set('Pull cancelled')
+                self._start_btn.config(state='normal')
+                self._stop_btn.config(state='disabled')
+                self._scan_btn.config(state='normal')
+                return
+            if not local_paths:
+                self._log_msg('No ROMs were pulled successfully.')
+                self._status_var.set('Pull failed')
+                self._start_btn.config(state='normal')
+                self._stop_btn.config(state='disabled')
+                self._scan_btn.config(state='normal')
+                return
+            # Build reverse mapping: local cached path → remote path (tree iid)
+            self._adb_local_to_remote = {lp: rp for rp, lp in local_paths}
+            worker_paths = [lp for _, lp in local_paths]
+            self._log_msg(
+                f'Pulled {len(local_paths)} ROMs '
+                f'({len(failed_pulls)} failed). Starting extraction…')
+            self._start_worker(worker_paths)
+            return
+
+        elif msg_type == 'adb_push_done':
+            self._status_var.set(f'Done — {data} MP3s pushed to device')
+            self._start_btn.config(state='normal')
+            self._stop_btn.config(state='disabled')
+            self._scan_btn.config(state='normal')
+            return
+
         elif msg_type == 'file_status':
             rom_path, status = data
+            # In ADB mode the worker uses local cached paths, but tree iids
+            # are remote paths.  Resolve via the reverse map.
+            tree_iid = rom_path
+            if hasattr(self, '_adb_local_to_remote'):
+                tree_iid = self._adb_local_to_remote.get(rom_path, rom_path)
             tag = {
                 'Done':          'done',
                 'Already Done':  'exists',
@@ -561,18 +1094,20 @@ if ($folder -ne $null) {
                 'No Audio':      'noaudio',
                 'Processing...': 'proc',
                 'Pending':       'pending',
+                'Pulling…':      'proc',
+                'Pull Failed':   'error',
             }.get(status, 'pending')
             try:
-                vals = self._tree.item(rom_path, 'values')
-                old_tags = self._tree.item(rom_path, 'tags')
+                vals = self._tree.item(tree_iid, 'values')
+                old_tags = self._tree.item(tree_iid, 'tags')
                 # Preserve the 'selected' tag
                 new_tags = [tag]
                 if 'selected' in old_tags:
                     new_tags.append('selected')
-                self._tree.item(rom_path,
+                self._tree.item(tree_iid,
                                 values=(vals[0], vals[1], vals[2], status),
                                 tags=new_tags)
-                self._tree.see(rom_path)
+                self._tree.see(tree_iid)
             except tk.TclError:
                 pass
 
@@ -584,12 +1119,31 @@ if ($folder -ne $null) {
             self._status_var.set(
                 f'Finished: {success} done, {skipped} skipped, {failed} errors')
             self._progress['value'] = 100
-            self._start_btn.config(state='normal')
-            self._stop_btn.config(state='disabled')
-            self._scan_btn.config(state='normal')
             self._log_msg(
                 f'--- Finished: {success}/{total} exported, '
                 f'{skipped} skipped/no audio, {failed} errors ---')
+
+            # Push MP3s back to device if ADB mode + push enabled
+            if (self._source_mode.get() == 'adb' and
+                    self._adb_push_var.get() and
+                    self._adb_push_dir.get().strip() and
+                    success > 0):
+                # Collect MP3 paths for successfully processed ROMs
+                mp3s = []
+                for iid in self._tree.get_children():
+                    vals = self._tree.item(iid, 'values')
+                    if vals[3] == 'Done':
+                        ext = os.path.splitext(iid)[1].lower()
+                        mp3 = get_mp3_path(iid, ext)
+                        if os.path.isfile(mp3):
+                            mp3s.append(mp3)
+                if mp3s:
+                    self._start_adb_push(mp3s)
+                    return  # Don't re-enable buttons yet; push handler will
+
+            self._start_btn.config(state='normal')
+            self._stop_btn.config(state='disabled')
+            self._scan_btn.config(state='normal')
 
     # ── Selection ─────────────────────────────────────────────────────────────
 
