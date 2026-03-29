@@ -1,0 +1,7 @@
+# Jingles - ROM Banner Sound Extractor
+#
+# Core functionality uses only the Python standard library.
+# No pip packages are required unless you need PS2 support.
+#
+# Optional: PS2 audio capture via WASAPI loopback (requires PCSX2)
+# pip install pyaudiowpatch
