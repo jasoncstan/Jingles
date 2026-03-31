@@ -7,9 +7,9 @@ from tkinter import ttk, filedialog, messagebox
 
 from scanner import scan_directory
 from utils import (find_ffmpeg, find_7z, find_vgmstream, find_retroarch,
-                   get_platform, safe_stem, SUPPORTED_EXTENSIONS,
-                   load_config, save_config, OUTPUT_BASE, get_mp3_path,
-                   PLATFORM_NAMES)
+                   find_dolphintool, get_platform, safe_stem, game_stem,
+                   SUPPORTED_EXTENSIONS, load_config, save_config,
+                   OUTPUT_BASE, get_mp3_path, PLATFORM_NAMES)
 from worker import ProcessingWorker
 from adb import (find_adb, list_devices, list_directory, scan_device_roms,
                  pull_file, push_file, AdbRomCache)
@@ -41,6 +41,7 @@ class JinglesApp(tk.Tk):
         self._7z                  = find_7z()
         self._vgmstream           = find_vgmstream()
         self._retroarch, self._retroarch_cores = find_retroarch()
+        self._dolphintool          = find_dolphintool()
         self._adb                 = find_adb()
         self._worker: ProcessingWorker = None
         self._msg_queue           = queue.Queue()
@@ -100,6 +101,8 @@ class JinglesApp(tk.Tk):
         self._vgs_lbl.pack(side='right', padx=(0, 8))
         self._ra_lbl = tk.Label(top, font=('Segoe UI', 9), bg=BG_PANEL)
         self._ra_lbl.pack(side='right', padx=(0, 8))
+        self._dt_lbl = tk.Label(top, font=('Segoe UI', 9), bg=BG_PANEL)
+        self._dt_lbl.pack(side='right', padx=(0, 8))
         self._adb_lbl = tk.Label(top, font=('Segoe UI', 9), bg=BG_PANEL)
         self._adb_lbl.pack(side='right', padx=(0, 8))
         tk.Button(top, text='BIOS…', command=self._open_bios_manager,
@@ -392,6 +395,10 @@ class JinglesApp(tk.Tk):
             self._ra_lbl.config(text=f'RetroArch ✓ ({n} cores)', fg=SUCCESS)
         else:
             self._ra_lbl.config(text='RetroArch ✗', fg=WARNING)
+
+        self._dt_lbl.config(
+            text='DolphinTool ✓' if self._dolphintool else 'DolphinTool ✗',
+            fg=SUCCESS if self._dolphintool else FG_DIM)
 
         self._adb_lbl.config(
             text='ADB ✓' if self._adb else 'ADB ✗',
@@ -788,8 +795,8 @@ if ($folder -ne $null) {
         self._rom_paths = [str(r) for r in roms]
 
         for path in roms:
-            stem     = safe_stem(str(path))
             ext      = os.path.splitext(str(path))[1].lower()
+            stem     = game_stem(str(path), ext)
             platform = get_platform(str(path))
 
             mp3_exists = os.path.isfile(get_mp3_path(str(path), ext))

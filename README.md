@@ -1,15 +1,16 @@
 # Jingles
 
-A ROM banner sound extractor that generates short MP3 preview clips from game ROMs. Designed for emulator frontends that need per-game audio jingles.
+A ROM banner sound extractor that generates MP3 preview clips from game ROMs. Designed for emulator frontends that need per-game audio jingles.
 
-Jingles scans a ROM directory, extracts or captures banner/title audio from each game, and exports 3-6 second MP3 clips with fade-out, organized by platform.
+Jingles scans a ROM directory, extracts or captures banner/title audio from each game, and exports MP3 clips organized by platform. Native banner extractions preserve the original audio in full; emulation-based captures are clipped to 3–6 seconds with fade-out.
 
 ## Features
 
-- **Native banner extraction** for formats that embed audio:
+- **Native banner extraction** for formats that embed audio (full-length, no trim/fade):
   - Nintendo 3DS (.3ds, .cci, .cia) — BCWAV from ExeFS banner via CBMD header
   - Nintendo DS (.nds, .dsi) — IMA-ADPCM from DSi-enhanced banners
-  - Wii (.wbfs, .wia, .iso) — BNS/DSP-ADPCM from opening.bnr
+  - Wii (.wbfs, .wia, .rvz, .iso) — BNS/DSP-ADPCM from opening.bnr. Supports both decrypted dumps and encrypted retail discs (encrypted discs require DolphinTool)
+  - Wii U — bootSound.btsnd (48kHz DSP-ADPCM/PCM) extracted from decrypted game folders (code/content/meta/ structure). Encrypted WUX/WUD disc images are not supported; decrypt with CDecrypt or similar first
   - PSP (.iso, .cso, .pbp) — SND0.AT3 from ISO9660 or PBP container
 - **RetroArch emulation fallback** for systems without embedded audio (NES, SNES, Game Boy, N64, Genesis, and 50+ other systems) — boots the game headlessly, records title screen audio, strips silence
 - **PCSX2 standalone emulation** for PlayStation 2 games — launches PCSX2-Qt with turbo boot, captures audio via WASAPI loopback recording
@@ -24,7 +25,7 @@ Jingles scans a ROM directory, extracts or captures banner/title audio from each
 
 | Category | Systems |
 |---|---|
-| Nintendo | NES, FDS, SNES, Game Boy/Color, GBA, N64, DS, 3DS, Virtual Boy, Pokemon Mini, GameCube, Wii |
+| Nintendo | NES, FDS, SNES, Game Boy/Color, GBA, N64, DS, 3DS, Virtual Boy, Pokemon Mini, GameCube, Wii, Wii U |
 | Sega | SG-1000, Master System, Game Gear, Genesis/Mega Drive, 32X |
 | NEC | PC Engine/TurboGrafx-16, SuperGrafx |
 | Atari | 2600, 5200, 7800, Lynx, Jaguar, ST |
@@ -49,6 +50,7 @@ Place these in a `tools/` directory alongside the project (not included in the r
 | [vgmstream](https://github.com/vgmstream/vgmstream) | Decoding hundreds of game audio container formats | ISC | [GitHub Releases](https://github.com/vgmstream/vgmstream/releases) |
 | [RetroArch](https://www.retroarch.com/) | Headless emulation for systems without embedded banner audio | GPL-3.0 | [retroarch.com](https://www.retroarch.com/index.php?page=platforms) |
 | [PCSX2](https://pcsx2.net/) | PlayStation 2 emulation (standalone, not the RetroArch core) | GPL-3.0 | [GitHub Releases](https://github.com/PCSX2/pcsx2/releases) |
+| [DolphinTool](https://dolphin-emu.org/) | Extracting banner audio from encrypted/compressed Wii disc images (RVZ, WIA, encrypted ISO/WBFS) | GPL-2.0 | [dolphin-emu.org](https://dolphin-emu.org/download/) |
 | [ADB (Android Debug Bridge)](https://developer.android.com/tools/adb) | Pull ROMs from / push MP3s to Android devices over USB | Apache 2.0 | [SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools#downloads) |
 
 ### Tool Setup
@@ -74,6 +76,8 @@ Jingles/
         ps2-0230a-20080220.bin   (USA)
         ps2-0230e-20080220.bin   (EUR)
         ps2-0230j-20080220.bin   (JPN)
+    Dolphin/                     (optional: encrypted/compressed Wii discs)
+      DolphinTool.exe
     platform-tools/              (optional: ADB device support)
       adb.exe
       AdbWinApi.dll
@@ -81,6 +85,29 @@ Jingles/
 ```
 
 RetroArch cores can be downloaded from the [libretro buildbot](https://buildbot.libretro.com/nightly/windows/x86_64/latest/). Only cores for systems you want to process are needed.
+
+### DolphinTool (Optional — for encrypted/compressed Wii discs)
+
+DolphinTool is only needed if your Wii games are in encrypted or compressed formats (RVZ, WIA, or encrypted retail ISO/WBFS). Decrypted WBFS and ISO files work without it.
+
+DolphinTool ships with [Dolphin Emulator](https://dolphin-emu.org/download/). Download Dolphin and copy `DolphinTool.exe` into `tools/Dolphin/`. Jingles will also find it if Dolphin is in your system PATH.
+
+### Wii U Games
+
+Wii U banner audio (`bootSound.btsnd`) can only be extracted from **decrypted game folders** — the directory structure used by Cemu and other Wii U emulators:
+
+```
+Game Name/
+  code/
+  content/
+  meta/
+    bootSound.btsnd    ← banner audio (auto-detected by Jingles)
+    meta.xml
+```
+
+Point Jingles at a folder containing one or more decrypted Wii U game folders. The scanner will auto-detect them and display each game with the folder name and "Wii U" platform.
+
+**Encrypted WUX/WUD disc images cannot be read directly.** Use a tool like [CDecrypt](https://github.com/VitaSmith/cdecrypt) with the game's title key to produce the decrypted folder structure first.
 
 ### ADB Setup (Optional — for pulling ROMs directly from a device)
 
@@ -153,18 +180,19 @@ Output MP3s are saved to `output/<Platform>/` with filenames matching the ROM.
 
 Jingles tries multiple extraction methods in order:
 
-1. **Format-specific extractor** — parses the ROM binary directly to extract embedded banner audio (3DS BCWAV, DS IMA-ADPCM, Wii BNS, PSP AT3)
+1. **Format-specific extractor** — parses the ROM binary directly to extract embedded banner audio (3DS BCWAV, DS IMA-ADPCM, Wii BNS, Wii U BTSND, PSP AT3). Output preserves the original audio in full — no trimming or fade effects. For encrypted Wii discs (RVZ, WIA, encrypted ISO/WBFS), DolphinTool is used to extract the banner data.
 2. **vgmstream** — tries to decode the file as a known game audio format
-3. **RetroArch emulation** — boots the game headlessly, records audio for 15-75 seconds, strips leading silence, and clips to 3-6 seconds with fade-out. Retries with longer captures if silent, and sends Start+A inputs as a last resort
+3. **RetroArch emulation** — boots the game headlessly, records audio for 15–75 seconds, strips leading silence, and clips to 3–6 seconds with fade-out. Retries with longer captures if silent, and sends Start+A inputs as a last resort
 4. **PCSX2 emulation** — for PS2 games, launches standalone PCSX2-Qt with turbo fast-forward, sends Start to advance past menus, and captures title audio via WASAPI loopback recording
 5. **FFmpeg generic** — attempts to extract any audio stream from the file
 
 ## Output Format
 
 - 44.1 kHz stereo MP3 at 128 kbps
-- 3-6 seconds duration with 1-second fade-out
-- Named after the ROM file stem
-- Organized by platform: `output/Nintendo 3DS/`, `output/PlayStation 2/`, etc.
+- Banner extractions: full original duration, no effects applied
+- Emulation/fallback extractions: 3–6 seconds with 1-second fade-out
+- Named after the ROM file stem (Wii U games use the game folder name)
+- Organized by platform: `output/Nintendo 3DS/`, `output/Wii U/`, etc.
 
 ## BIOS Files
 
@@ -194,5 +222,6 @@ Jingles does not bundle or redistribute any third-party tools. The following too
 - **vgmstream** — Licensed under the [ISC License](https://github.com/vgmstream/vgmstream/blob/master/COPYING). Copyright (c) the vgmstream contributors.
 - **RetroArch** — Licensed under [GPL-3.0](https://github.com/libretro/RetroArch/blob/master/COPYING). Copyright (c) the libretro team. Individual cores have their own licenses.
 - **PCSX2** — Licensed under [GPL-3.0](https://github.com/PCSX2/pcsx2/blob/master/COPYING.GPLv3). Copyright (c) the PCSX2 team.
+- **Dolphin Emulator / DolphinTool** — Licensed under [GPL-2.0](https://github.com/dolphin-emu/dolphin/blob/master/COPYING). Copyright (c) the Dolphin Emulator team.
 - **ADB (Android Debug Bridge)** — Licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0). Copyright (c) Google LLC.
 

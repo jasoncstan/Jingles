@@ -1,5 +1,6 @@
 from extractors.nds import NdsExtractor
 from extractors.wii import WiiExtractor
+from extractors.wiiu import WiiUExtractor
 from extractors.n3ds import N3dsExtractor
 from extractors.psp import PspExtractor
 
@@ -11,6 +12,10 @@ EXTRACTOR_MAP = {
     '.iso': [WiiExtractor, PspExtractor],
     '.wbfs': [WiiExtractor],
     '.wia': [WiiExtractor],
+    '.rvz': [WiiExtractor],
+    '.wux': [WiiUExtractor, WiiExtractor],
+    '.wud': [WiiUExtractor, WiiExtractor],
+    '.btsnd': [WiiUExtractor],
     '.3ds': [N3dsExtractor],
     '.cci': [N3dsExtractor],
     '.cia': [N3dsExtractor],

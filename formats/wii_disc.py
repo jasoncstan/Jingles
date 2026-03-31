@@ -1,10 +1,13 @@
-"""Wii and GameCube disc image reader supporting ISO and WBFS formats.
+"""Wii and GameCube disc image reader supporting ISO, WBFS, and WUX formats.
 
 Handles:
   - Raw Wii ISO (.iso): unencrypted/decrypted dumps only. Encrypted retail
     discs will fail FST validation and return None from find_opening_bnr().
+    Use DolphinTool extract for encrypted discs (handled by WiiExtractor).
   - WBFS (.wbfs): sparse Wii disc container. Remaps Wii logical sectors
     through the Wii LBA Block table.
+  - WUX (.wux): compressed disc image using sector deduplication. An index
+    table maps virtual sector numbers to unique physical sectors.
   - GameCube ISO (.iso, .gcm): simpler disc format, no encryption.
     opening.bnr on GCN is a visual-only banner (no audio), so
     find_opening_bnr() returns None for GCN discs.
@@ -25,16 +28,62 @@ class WiiDisc:
     # Wii partition table lives at this fixed disc offset
     PART_TABLE_OFF = 0x40000
 
+    WUX_MAGIC0 = 0x30585557   # "WUX0" as LE uint32
+    WUX_MAGIC1 = 0x1099D02E
+
     def __init__(self, path: str):
         self._path = path
         self._f = open(path, 'rb')
-        self._is_wbfs = self._check_wbfs()
-        if self._is_wbfs:
+        self._is_wbfs = False
+        self._is_wux = False
+
+        if self._check_wux():
+            self._is_wux = True
+            self._init_wux()
+        elif self._check_wbfs():
+            self._is_wbfs = True
             self._init_wbfs()
 
     def _check_wbfs(self) -> bool:
         self._f.seek(0)
         return self._f.read(4) == b'WBFS'
+
+    def _check_wux(self) -> bool:
+        self._f.seek(0)
+        hdr = self._f.read(8)
+        if len(hdr) < 8:
+            return False
+        magic0 = struct.unpack_from('<I', hdr, 0)[0]
+        magic1 = struct.unpack_from('<I', hdr, 4)[0]
+        return magic0 == self.WUX_MAGIC0 and magic1 == self.WUX_MAGIC1
+
+    def _init_wux(self):
+        """Parse the WUX header and sector index table."""
+        self._f.seek(0)
+        hdr = self._f.read(0x20)
+        # Header layout (little-endian, with struct padding):
+        #   0x00: uint32 magic0
+        #   0x04: uint32 magic1
+        #   0x08: uint32 sectorSize
+        #   0x0C: 4 bytes padding
+        #   0x10: uint64 uncompressedSize
+        #   0x18: uint32 flags
+        #   0x1C: 4 bytes padding
+        self._wux_sector_size = struct.unpack_from('<I', hdr, 0x08)[0]
+        self._wux_uncompressed_size = struct.unpack_from('<Q', hdr, 0x10)[0]
+
+        # Index table starts at 0x20
+        entry_count = (self._wux_uncompressed_size + self._wux_sector_size - 1) \
+            // self._wux_sector_size
+
+        self._f.seek(0x20)
+        raw_table = self._f.read(entry_count * 4)
+        self._wux_index = struct.unpack(f'<{len(raw_table) // 4}I', raw_table)
+
+        # Sector data starts at the next sectorSize-aligned offset after the table
+        data_start = 0x20 + entry_count * 4
+        ss = self._wux_sector_size
+        self._wux_data_offset = (data_start + ss - 1) // ss * ss
 
     def _init_wbfs(self):
         self._f.seek(0)
@@ -68,9 +117,32 @@ class WiiDisc:
 
     def read_virtual(self, offset: int, size: int) -> bytes:
         """Read bytes at a virtual (logical) Wii disc offset."""
-        if not self._is_wbfs:
-            return self._raw_read(offset, size)
-        return self._wbfs_read(offset, size)
+        if self._is_wux:
+            return self._wux_read(offset, size)
+        if self._is_wbfs:
+            return self._wbfs_read(offset, size)
+        return self._raw_read(offset, size)
+
+    def _wux_read(self, offset: int, size: int) -> bytes:
+        """Read from a WUX file by resolving the sector index table."""
+        result = bytearray()
+        ss = self._wux_sector_size
+        while size > 0:
+            sector_idx = offset // ss
+            sector_off = offset % ss
+            chunk = min(size, ss - sector_off)
+
+            if sector_idx >= len(self._wux_index):
+                result += b'\x00' * chunk
+            else:
+                phys_sector = self._wux_index[sector_idx]
+                phys_pos = self._wux_data_offset + phys_sector * ss + sector_off
+                self._f.seek(phys_pos)
+                result += self._f.read(chunk)
+
+            offset += chunk
+            size -= chunk
+        return bytes(result)
 
     def _wbfs_read(self, offset: int, size: int) -> bytes:
         result = bytearray()
@@ -101,33 +173,29 @@ class WiiDisc:
         return wii, gcn
 
     def find_opening_bnr(self) -> bytes:
-        """Find and return the decompressed U8 data from opening.bnr, or None.
+        """Find and return the raw opening.bnr data, or None.
 
         Only valid for unencrypted/decrypted Wii ISOs and WBFS files.
         GameCube opening.bnr contains no audio and is skipped.
-        Encrypted retail Wii ISOs will fail FST validation and return None.
+        Encrypted retail Wii ISOs will fail FST validation and return None;
+        use DolphinTool extract for those (handled by WiiExtractor).
         """
         wii_magic, gcn_magic = self._disc_magic()
 
         if gcn_magic == self.GCN_MAGIC:
-            # GameCube: opening.bnr has no audio
             return None
 
         if wii_magic != self.WII_MAGIC:
             return None
 
-        # Locate the DATA (type=0) partition
         data_part_off = self._find_data_partition()
         if data_part_off is None:
             return None
 
-        # Read the partition header to get the data area offset
-        # partition_header[0x2B8:0x2BC] = data_relative_offset >> 2
         part_hdr_data = self.read_virtual(data_part_off + 0x2B8, 4)
         data_rel_off = struct.unpack_from('>I', part_hdr_data, 0)[0] * 4
         data_abs_off = data_part_off + data_rel_off
 
-        # Read the "inner" disc header from the decrypted data area
         inner_hdr = self.read_virtual(data_abs_off, 0x440)
         if len(inner_hdr) < 0x440:
             return None
@@ -152,27 +220,26 @@ class WiiDisc:
         str_table = num_entries * 12
         for i in range(1, num_entries):
             e = i * 12
+            if e + 12 > len(fst_data):
+                break
             type_name = struct.unpack_from('>I', fst_data, e)[0]
             if (type_name >> 24) != 0:
                 continue  # skip directories
 
             name_idx = type_name & 0xFFFFFF
-            name_end = fst_data.index(b'\x00', str_table + name_idx)
-            name = fst_data[str_table + name_idx:name_end].decode('ascii', errors='ignore')
-
+            name_start = str_table + name_idx
+            if name_start >= len(fst_data):
+                continue
+            try:
+                name_end = fst_data.index(b'\x00', name_start)
+            except ValueError:
+                continue
+            name = fst_data[name_start:name_end].decode('ascii',
+                                                         errors='ignore')
             if name.lower() == 'opening.bnr':
                 file_off = struct.unpack_from('>I', fst_data, e + 4)[0] * 4
                 file_size = struct.unpack_from('>I', fst_data, e + 8)[0]
-                raw = self.read_virtual(data_abs_off + file_off, file_size)
-
-                # Decompress if LZ77-compressed
-                if raw and raw[0] == 0x10:
-                    try:
-                        raw = decompress_lz77(raw)
-                    except Exception:
-                        return None
-
-                return raw
+                return self.read_virtual(data_abs_off + file_off, file_size)
 
         return None
 

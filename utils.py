@@ -23,7 +23,9 @@ SUPPORTED_EXTENSIONS = {
     '.min',                                      # Pokemon Mini
     '.gcm', '.gcz',                              # GameCube
     '.iso',                                      # GameCube / Wii / PS1 / PS2 / PSP disc
-    '.wbfs', '.wia', '.rvz',                     # Wii alternate formats
+    '.wbfs', '.wia', '.rvz',                       # Wii alternate formats
+    '.wux', '.wud',                                # Wii U disc formats
+    '.btsnd',                                      # Wii U boot sound (from decrypted game folder)
     '.wad',                                      # WiiWare
     '.nsp', '.xci',                              # Nintendo Switch
     # ── Sega ──────────────────────────────────────────────────────────────────
@@ -108,6 +110,9 @@ PLATFORM_NAMES = {
     '.wbfs': 'Wii',
     '.wia': 'Wii',
     '.rvz': 'Wii',
+    '.wux': 'Wii U',
+    '.wud': 'Wii U',
+    '.btsnd': 'Wii U',
     '.wad': 'WiiWare',
     '.nsp': 'Nintendo Switch',
     '.xci': 'Nintendo Switch',
@@ -306,6 +311,50 @@ def find_retroarch() -> tuple:
     return None, None
 
 
+def find_dolphintool() -> str:
+    """Return the path to DolphinTool.exe, or None if not found.
+
+    DolphinTool ships with Dolphin Emulator and can convert RVZ/WIA to ISO.
+    Search order:
+      1. tools/ directory bundled alongside jingles.py
+      2. System PATH
+      3. Common Windows install locations
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+
+    for name in ('DolphinTool.exe', 'dolphintool.exe', 'DolphinTool'):
+        bundled = os.path.join(here, 'tools', name)
+        if os.path.isfile(bundled):
+            return bundled
+        found = shutil.which(name)
+        if found:
+            return found
+
+    # Check Dolphin install directories
+    candidates = [
+        r'C:\Program Files\Dolphin\DolphinTool.exe',
+        r'C:\Program Files (x86)\Dolphin\DolphinTool.exe',
+        os.path.expanduser(r'~\AppData\Local\Dolphin\DolphinTool.exe'),
+        os.path.expanduser(r'~\AppData\Local\Programs\Dolphin\DolphinTool.exe'),
+    ]
+
+    # Also check subdirectories of tools/ (e.g. tools/Dolphin/DolphinTool.exe)
+    tools_dir = os.path.join(here, 'tools')
+    if os.path.isdir(tools_dir):
+        for entry in os.listdir(tools_dir):
+            sub = os.path.join(tools_dir, entry)
+            if os.path.isdir(sub):
+                candidate = os.path.join(sub, 'DolphinTool.exe')
+                if os.path.isfile(candidate):
+                    return candidate
+
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+
+    return None
+
+
 def find_vgmstream() -> str:
     """Return the path to vgmstream-cli.exe, or None if not found.
 
@@ -387,10 +436,27 @@ def get_mp3_path(rom_path: str, inner_ext: str) -> str:
                    Used to determine the platform subfolder name.
     """
     platform = _detect_platform(rom_path, inner_ext.lower())
-    stem = safe_stem(rom_path)
+    stem = game_stem(rom_path, inner_ext.lower())
     out_dir = os.path.join(OUTPUT_BASE, platform)
     os.makedirs(out_dir, exist_ok=True)
     return os.path.join(out_dir, stem + '.mp3')
+
+
+def game_stem(rom_path: str, ext: str = None) -> str:
+    """Return the game name stem for a ROM path.
+
+    For .btsnd files (Wii U decrypted folders), uses the game folder name
+    (parent of meta/) instead of the filename 'bootSound'.
+    """
+    if ext is None:
+        ext = os.path.splitext(rom_path)[1].lower()
+    if ext == '.btsnd':
+        # meta/bootSound.btsnd → use the game folder name (parent of meta/)
+        meta_dir = Path(rom_path).parent
+        if meta_dir.name.lower() == 'meta':
+            game_dir_name = meta_dir.parent.name
+            return re.sub(r'[\\/:*?"<>|]', '_', game_dir_name).strip()
+    return safe_stem(rom_path)
 
 
 def get_platform(path: str) -> str:

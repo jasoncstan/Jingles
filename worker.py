@@ -157,12 +157,15 @@ class ProcessingWorker:
 
         try:
             # 1. Try format-specific extractors
+            #    Banner audio is already the correct length — preserve
+            #    the full duration without trimming or fade effects.
             for extractor_cls in EXTRACTOR_MAP.get(inner_ext, []):
                 result = extractor_cls().extract(actual_rom_path)
                 if result is not None:
                     samples, rate, channels = result
                     write_wav(samples, rate, channels, tmp_wav)
-                    wav_to_mp3(tmp_wav, mp3_path, self._ffmpeg, title=stem)
+                    wav_to_mp3(tmp_wav, mp3_path, self._ffmpeg,
+                               title=stem, trim=False)
                     self._log(f'Banner audio: {stem}')
                     return True
 

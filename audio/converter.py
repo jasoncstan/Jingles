@@ -10,14 +10,16 @@ FADE_START = CLIP_MAX_SECS - FADE_SECS  # 5.0s
 
 
 def wav_to_mp3(wav_path: str, mp3_path: str, ffmpeg: str,
-               title: str = None) -> None:
-    """Convert a WAV file to an MP3 clip (max 6 s, 1 s fade-out).
+               title: str = None, trim: bool = True) -> None:
+    """Convert a WAV file to an MP3.
 
     Args:
         wav_path: Input WAV file path.
         mp3_path: Output MP3 file path.
         ffmpeg:   Absolute path to the ffmpeg executable.
         title:    Optional ID3 title tag to embed in the MP3.
+        trim:     If True (default), clip to 6 s with fade-out.
+                  If False, preserve the full duration with no effects.
 
     Raises:
         RuntimeError: if ffmpeg exits with a non-zero return code.
@@ -26,8 +28,13 @@ def wav_to_mp3(wav_path: str, mp3_path: str, ffmpeg: str,
     cmd = [
         ffmpeg, '-y',
         '-i', wav_path,
-        '-t', str(CLIP_MAX_SECS),
-        '-af', f'afade=t=in:d=0.03,afade=t=out:st={FADE_START}:d={FADE_SECS}',
+    ]
+    if trim:
+        cmd += [
+            '-t', str(CLIP_MAX_SECS),
+            '-af', f'afade=t=in:d=0.03,afade=t=out:st={FADE_START}:d={FADE_SECS}',
+        ]
+    cmd += [
         '-ar', '44100',
         '-ac', '2',          # upmix mono to stereo for MP3 compatibility
         '-b:a', '128k',
