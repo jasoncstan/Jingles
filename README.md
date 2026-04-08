@@ -19,6 +19,10 @@ Jingles scans a ROM directory, extracts or captures banner/title audio from each
 - **FFmpeg generic fallback** for any file with an extractable audio stream
 - **Filter folder** — optionally limit processing to ROMs matching names in a reference folder or text file (supports MTP devices)
 - **ADB device support** — scan and pull ROMs directly from an Android handheld (e.g., Ayn Thor, Odin, Retroid) over USB, with optional push-back of generated MP3s to the device
+- **Configurable settings** — adjust clip durations, fade times, MP3 bitrate, RetroArch capture frames, PS2 emulation timing, and more from a Settings dialog (no restart needed)
+- **Game-specific rules** — override settings per ROM via filename patterns scoped to specific platforms. Includes a curated library of pre-built rules for Pokemon, Final Fantasy, Mega Man, Castlevania, Sonic, Mario, Zelda, and more
+- **Right-click ROM actions** — create, edit, or delete a rule directly from any scanned ROM in the file list, with platform and pattern auto-detected (works inside .zip/.7z archives)
+- **Tool status dashboard** — at-a-glance Required/Optional indicators in the top bar; click to see each tool's path or get a download link to the official source
 - **Dark-themed tkinter GUI** with progress tracking, per-file status, and log output
 
 ## Supported Platforms
@@ -175,6 +179,71 @@ pip install pyaudiowpatch
 4. Click **Start** to begin extraction
 
 Output MP3s are saved to `output/<Platform>/` with filenames matching the ROM.
+
+## Configuration
+
+The top bar exposes four configuration entry points:
+
+| Button | What it does |
+|---|---|
+| **Settings…** | Edit global defaults: clip duration, fade times, MP3 bitrate/sample rate, RetroArch capture frames, PS2 emulation timing |
+| **Rules…** | Manage game-specific rules that override global settings for matching ROMs |
+| **BIOS…** | Manage BIOS file paths for systems that need them |
+| **Required: X/Y** / **Optional: X/Y** | Click either indicator to open the External Tools dialog showing each tool's status, path, and a download link |
+
+### Settings
+
+Open via the **Settings…** button. All values are persisted in `jingles_config.json` and take effect on the next file processed (no restart needed).
+
+| Group | Setting | Default | Notes |
+|---|---|---|---|
+| Output | Max clip duration (s) | 6.0 | Length of emulation-captured clips |
+| Output | Min clip duration (s) | 3.0 | Minimum length before fade is applied |
+| Output | Fade-out duration (s) | 1.0 | End fade for emulation clips |
+| Output | Fade-in duration (s) | 0.03 | Short fade-in to avoid pops |
+| Output | MP3 bitrate | 128k | e.g. 128k, 192k, 256k |
+| Output | MP3 sample rate (Hz) | 44100 | Output sample rate |
+| RetroArch | Capture frames | 900 | Default emulation frames to record (~15 s at 60 fps) |
+| RetroArch | Max retry multiplier | 3 | Longest retry is this many times the default |
+| PS2 | Turbo boot duration (s) | 3 | Time PCSX2 stays in turbo to skip logos |
+| PS2 | Settle duration (s) | 2 | Wait at normal speed before recording |
+| PS2 | Record duration (s) | 8 | Length of audio capture |
+
+Banner extractions (3DS, DS, Wii, Wii U, PSP) ignore the clip duration / fade settings — they always preserve the full original audio. Only emulation-based and fallback paths are clipped.
+
+### Game-Specific Rules
+
+Open via the **Rules…** button. A rule overrides any global setting when its pattern matches a ROM's filename and the ROM is on one of the rule's selected platforms.
+
+Each rule has:
+
+- **Name** — descriptive label
+- **Pattern** — substring or regex matched against the ROM filename (case-insensitive)
+- **Platforms** — empty list = any platform, otherwise the rule only fires on the listed platforms
+- **Overrides** — checkboxes for each setting you want to override
+
+Rules are checked in the order they appear; the **first match wins**, so put more specific rules above more general ones.
+
+#### Right-click on a ROM
+
+Right-click any ROM in the scan list to:
+
+- **Create new rule from this ROM…** — opens the rule editor with name, pattern, and platform pre-filled. For ROMs inside `.zip`/`.7z` archives, the inner extension is detected so the platform pre-selects correctly.
+- **Edit rule: {name}** / **Delete rule: {name}** — shown when an existing rule already matches this ROM, so you can quickly tweak or remove it.
+
+#### Pre-built rule libraries
+
+The [`rules/`](rules/) folder ships with curated JSON files for series that need different settings due to long publisher logos or intros:
+
+| File | Description |
+|---|---|
+| [`rules/game_freak.json`](rules/game_freak.json) | Pokemon series across all platforms (Game Boy → 3DS) |
+| [`rules/final_fantasy.json`](rules/final_fantasy.json) | Final Fantasy and other Square Enix RPGs (Chrono, Kingdom Hearts, Dragon Quest, NieR) |
+| [`rules/long_intros.json`](rules/long_intros.json) | Mega Man, Castlevania, Metal Gear, Sonic, Zelda, Mario, Kirby, Metroid, EarthBound, Fire Emblem, Resident Evil, and others |
+
+To use them: open **Rules… → Import…**, pick a file, and choose **Yes (Merge)** to add the rules without overwriting your existing ones. Duplicates are auto-renamed with numeric suffixes so nothing is lost.
+
+You can also export your own rules via **Rules… → Export…** to share with other users.
 
 ## How It Works
 

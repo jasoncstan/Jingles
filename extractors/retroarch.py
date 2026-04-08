@@ -22,6 +22,8 @@ import threading
 import time
 from pathlib import Path
 
+import settings
+
 # Maps ROM extension -> ordered list of core dll names to try
 SYSTEM_CORES = {
     # ── Nintendo ──────────────────────────────────────────────────────────────
@@ -427,7 +429,8 @@ class RetroArchExtractor:
         if not core:
             return False, 'no core found'
 
-        frames = frames_override or _CAPTURE_FRAMES_OVERRIDE.get(ext, _CAPTURE_FRAMES_DEFAULT)
+        user_default = settings.get_for_rom('retroarch_capture_frames', rom_path)
+        frames = frames_override or _CAPTURE_FRAMES_OVERRIDE.get(ext, user_default)
         fps    = _SYSTEM_FPS.get(ext, _DEFAULT_FPS)
         # Timeout: 3× real-time equivalent + 30 s headroom to handle slow
         # startup, but cap at 120 s so hung processes don't block forever.

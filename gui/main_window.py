@@ -93,19 +93,30 @@ class JinglesApp(tk.Tk):
         tk.Label(top, text='🎵  Jingles', font=('Segoe UI', 18, 'bold'),
                  bg=BG_PANEL, fg=ACCENT).pack(side='left', padx=16)
 
-        self._ffmpeg_lbl = tk.Label(top, font=('Segoe UI', 9), bg=BG_PANEL)
-        self._ffmpeg_lbl.pack(side='right', padx=16)
-        self._7z_lbl = tk.Label(top, font=('Segoe UI', 9), bg=BG_PANEL)
-        self._7z_lbl.pack(side='right', padx=(0, 8))
-        self._vgs_lbl = tk.Label(top, font=('Segoe UI', 9), bg=BG_PANEL)
-        self._vgs_lbl.pack(side='right', padx=(0, 8))
-        self._ra_lbl = tk.Label(top, font=('Segoe UI', 9), bg=BG_PANEL)
-        self._ra_lbl.pack(side='right', padx=(0, 8))
-        self._dt_lbl = tk.Label(top, font=('Segoe UI', 9), bg=BG_PANEL)
-        self._dt_lbl.pack(side='right', padx=(0, 8))
-        self._adb_lbl = tk.Label(top, font=('Segoe UI', 9), bg=BG_PANEL)
-        self._adb_lbl.pack(side='right', padx=(0, 8))
+        # Tool status summary indicators (clickable)
+        self._optional_lbl = tk.Label(
+            top, font=('Segoe UI', 9, 'underline'),
+            bg=BG_PANEL, cursor='hand2')
+        self._optional_lbl.pack(side='right', padx=(0, 16))
+        self._optional_lbl.bind('<Button-1>',
+                                lambda e: self._open_tools_status())
+
+        self._required_lbl = tk.Label(
+            top, font=('Segoe UI', 9, 'underline'),
+            bg=BG_PANEL, cursor='hand2')
+        self._required_lbl.pack(side='right', padx=(0, 8))
+        self._required_lbl.bind('<Button-1>',
+                                lambda e: self._open_tools_status())
+
         tk.Button(top, text='BIOS…', command=self._open_bios_manager,
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 9), activebackground='#3A3A5D'
+                  ).pack(side='right', padx=(0, 8))
+        tk.Button(top, text='Rules…', command=self._open_rules_manager,
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 9), activebackground='#3A3A5D'
+                  ).pack(side='right', padx=(0, 8))
+        tk.Button(top, text='Settings…', command=self._open_settings,
                   bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
                   font=('Segoe UI', 9), activebackground='#3A3A5D'
                   ).pack(side='right', padx=(0, 8))
@@ -312,6 +323,7 @@ class JinglesApp(tk.Tk):
 
         # Toggle selection on click
         self._tree.bind('<ButtonRelease-1>', self._on_tree_click)
+        self._tree.bind('<Button-3>', self._on_tree_right_click)
 
         vsb = ttk.Scrollbar(list_frame, orient='vertical',   command=self._tree.yview)
         hsb = ttk.Scrollbar(list_frame, orient='horizontal', command=self._tree.xview)
@@ -377,32 +389,210 @@ class JinglesApp(tk.Tk):
 
     # ── Tool status labels ────────────────────────────────────────────────────
 
+    def _tool_list(self):
+        """Return a list of (name, required, path, description, url) tuples."""
+        return [
+            ('FFmpeg', True, self._ffmpeg,
+             'MP3 encoding and audio conversion. Required for all output.',
+             'https://ffmpeg.org/download.html'),
+            ('7-Zip', False, self._7z,
+             'Extracts .7z archives. Without it, only .zip archives work.',
+             'https://www.7-zip.org/download.html'),
+            ('vgmstream', False, self._vgmstream,
+             'Decodes hundreds of game audio container formats.',
+             'https://github.com/vgmstream/vgmstream/releases'),
+            ('RetroArch', False, self._retroarch,
+             'Headless emulation fallback for systems without embedded '
+             'banner audio (NES, SNES, GBA, etc.).',
+             'https://www.retroarch.com/index.php?page=platforms'),
+            ('DolphinTool', False, self._dolphintool,
+             'Extracts banner audio from encrypted/compressed Wii disc '
+             'images (RVZ, WIA, encrypted ISO/WBFS).',
+             'https://dolphin-emu.org/download/'),
+            ('ADB', False, self._adb,
+             'Pulls ROMs from / pushes MP3s to Android devices over USB.',
+             'https://developer.android.com/tools/releases/platform-tools#downloads'),
+        ]
+
     def _refresh_tool_labels(self):
-        self._ffmpeg_lbl.config(
-            text='FFmpeg ✓' if self._ffmpeg else 'FFmpeg ✗',
-            fg=SUCCESS if self._ffmpeg else WARNING)
-        self._7z_lbl.config(
-            text='7-Zip ✓' if self._7z else '7-Zip ✗',
-            fg=SUCCESS if self._7z else WARNING)
-        self._vgs_lbl.config(
-            text='vgmstream ✓' if self._vgmstream else 'vgmstream ✗',
-            fg=SUCCESS if self._vgmstream else WARNING)
+        tools = self._tool_list()
+        required = [t for t in tools if t[1]]
+        optional = [t for t in tools if not t[1]]
 
-        if self._retroarch:
-            from extractors.retroarch import RetroArchExtractor
-            ra = RetroArchExtractor(self._retroarch, self._retroarch_cores)
-            n = sum(1 for ext in ra.supported_extensions if ra.find_core(ext))
-            self._ra_lbl.config(text=f'RetroArch ✓ ({n} cores)', fg=SUCCESS)
-        else:
-            self._ra_lbl.config(text='RetroArch ✗', fg=WARNING)
+        req_found = sum(1 for t in required if t[2])
+        opt_found = sum(1 for t in optional if t[2])
 
-        self._dt_lbl.config(
-            text='DolphinTool ✓' if self._dolphintool else 'DolphinTool ✗',
-            fg=SUCCESS if self._dolphintool else FG_DIM)
+        self._required_lbl.config(
+            text=f'Required: {req_found}/{len(required)}',
+            fg=SUCCESS if req_found == len(required) else ERROR)
+        self._optional_lbl.config(
+            text=f'Optional: {opt_found}/{len(optional)}',
+            fg=SUCCESS if opt_found == len(optional)
+            else (WARNING if opt_found > 0 else FG_DIM))
 
-        self._adb_lbl.config(
-            text='ADB ✓' if self._adb else 'ADB ✗',
-            fg=SUCCESS if self._adb else FG_DIM)
+    def _open_tools_status(self):
+        """Open a dialog showing per-tool status, paths, and download links."""
+        import webbrowser
+
+        dlg = tk.Toplevel(self)
+        dlg.title('External Tools')
+        dlg.geometry('720x560')
+        dlg.minsize(640, 460)
+        dlg.configure(bg=BG)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        tk.Label(dlg, text='External Tools',
+                 font=('Segoe UI', 14, 'bold'),
+                 bg=BG, fg=ACCENT
+                 ).pack(anchor='w', padx=16, pady=(12, 4))
+        tk.Label(dlg,
+                 text='Place tools in the tools/ directory or install them '
+                      'system-wide. Required tools must be present for '
+                      'Jingles to function. Optional tools enable extra '
+                      'features and fallbacks.',
+                 bg=BG, fg=FG_DIM, font=('Segoe UI', 9),
+                 wraplength=680, justify='left'
+                 ).pack(anchor='w', padx=16)
+
+        tools = self._tool_list()
+        required = [t for t in tools if t[1]]
+        optional = [t for t in tools if not t[1]]
+
+        # Bottom buttons
+        btn_frame = tk.Frame(dlg, bg=BG)
+        btn_frame.pack(side='bottom', fill='x', padx=16, pady=(8, 12))
+        tk.Button(btn_frame, text='Refresh',
+                  command=lambda: (self._rescan_tools(),
+                                   dlg.destroy(),
+                                   self._open_tools_status()),
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 10),
+                  activebackground='#3A3A5D'
+                  ).pack(side='left')
+        tk.Button(btn_frame, text='Close', width=10,
+                  command=dlg.destroy,
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 10),
+                  activebackground='#3A3A5D'
+                  ).pack(side='right')
+
+        # Scrollable content
+        outer = tk.Frame(dlg, bg=BG)
+        outer.pack(fill='both', expand=True, padx=16, pady=4)
+        canvas = tk.Canvas(outer, bg=BG, highlightthickness=0)
+        sb = ttk.Scrollbar(outer, orient='vertical', command=canvas.yview)
+        inner = tk.Frame(canvas, bg=BG)
+        inner.bind(
+            '<Configure>',
+            lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.create_window((0, 0), window=inner, anchor='nw')
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side='left', fill='both', expand=True)
+        sb.pack(side='right', fill='y')
+
+        def _add_tool_row(tool):
+            name, is_required, path, desc, url = tool
+            row = tk.Frame(inner, bg=BG_PANEL)
+            row.pack(fill='x', pady=4, padx=2)
+
+            # Status icon + name line
+            top_line = tk.Frame(row, bg=BG_PANEL)
+            top_line.pack(fill='x', padx=8, pady=(6, 2))
+
+            status_text = '✓' if path else '✗'
+            status_color = SUCCESS if path else (ERROR if is_required else WARNING)
+            tk.Label(top_line, text=status_text,
+                     bg=BG_PANEL, fg=status_color,
+                     font=('Segoe UI', 12, 'bold')
+                     ).pack(side='left', padx=(0, 8))
+            tk.Label(top_line, text=name,
+                     bg=BG_PANEL, fg=FG,
+                     font=('Segoe UI', 11, 'bold')
+                     ).pack(side='left')
+
+            # Download link button (always shown, opens browser to the
+            # official download page).  When the tool is missing it's
+            # shown in the accent color to highlight the action.
+            def _download(u=url):
+                try:
+                    webbrowser.open(u)
+                except Exception:
+                    pass
+
+            if path:
+                tk.Button(top_line, text='Download…',
+                          command=_download,
+                          bg=BG_ENTRY, fg=ACCENT, relief='flat',
+                          cursor='hand2', font=('Segoe UI', 8),
+                          activebackground='#3A3A5D'
+                          ).pack(side='right', padx=2)
+            else:
+                tk.Button(top_line, text='Download…',
+                          command=_download,
+                          bg=ACCENT, fg=BG, relief='flat',
+                          cursor='hand2',
+                          font=('Segoe UI', 8, 'bold'),
+                          activebackground='#74A8F0'
+                          ).pack(side='right', padx=2)
+
+            # Description
+            tk.Label(row, text=desc,
+                     bg=BG_PANEL, fg=FG_DIM, font=('Segoe UI', 9),
+                     wraplength=640, justify='left', anchor='w'
+                     ).pack(fill='x', padx=8, pady=(0, 2))
+
+            # Path or download URL
+            if path:
+                tk.Label(row, text=path,
+                         bg=BG_PANEL, fg=ACCENT,
+                         font=('Consolas', 8),
+                         wraplength=640, justify='left', anchor='w'
+                         ).pack(fill='x', padx=8, pady=(0, 6))
+            else:
+                tk.Label(row, text=f'Not installed — {url}',
+                         bg=BG_PANEL, fg=FG_DIM,
+                         font=('Consolas', 8),
+                         wraplength=640, justify='left', anchor='w'
+                         ).pack(fill='x', padx=8, pady=(0, 6))
+
+        # Required section
+        req_found = sum(1 for t in required if t[2])
+        tk.Label(inner,
+                 text=f'Required ({req_found}/{len(required)})',
+                 font=('Segoe UI', 11, 'bold'),
+                 bg=BG, fg=ACCENT
+                 ).pack(anchor='w', pady=(8, 4))
+        for tool in required:
+            _add_tool_row(tool)
+
+        # Optional section
+        opt_found = sum(1 for t in optional if t[2])
+        tk.Label(inner,
+                 text=f'Optional ({opt_found}/{len(optional)})',
+                 font=('Segoe UI', 11, 'bold'),
+                 bg=BG, fg=ACCENT
+                 ).pack(anchor='w', pady=(12, 4))
+        for tool in optional:
+            _add_tool_row(tool)
+
+        # Mouse wheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+        canvas.bind_all('<MouseWheel>', _on_mousewheel)
+        dlg.bind('<Destroy>',
+                 lambda e: canvas.unbind_all('<MouseWheel>')
+                 if e.widget == dlg else None)
+
+    def _rescan_tools(self):
+        """Re-detect external tools (called from the tools status dialog)."""
+        self._ffmpeg = find_ffmpeg()
+        self._7z = find_7z()
+        self._vgmstream = find_vgmstream()
+        self._retroarch, self._retroarch_cores = find_retroarch()
+        self._dolphintool = find_dolphintool()
+        self._adb = find_adb()
+        self._refresh_tool_labels()
 
     # ── Source mode switching ─────────────────────────────────────────────────
 
@@ -1176,6 +1366,210 @@ if ($folder -ne $null) {
         self._tree.item(iid, values=vals, tags=tags)
         self._update_count()
 
+    def _on_tree_right_click(self, event):
+        """Show a context menu when right-clicking a ROM row."""
+        iid = self._tree.identify_row(event.y)
+        if not iid:
+            return
+        # Select the row under the cursor for visual feedback
+        self._tree.selection_set(iid)
+
+        rom_path = iid
+        matching_rule = self._find_matching_rule_smart(rom_path)
+
+        menu = tk.Menu(self, tearoff=0,
+                       bg=BG_PANEL, fg=FG,
+                       activebackground='#3A3A5D', activeforeground=FG,
+                       bd=0)
+
+        if matching_rule:
+            rule_name = matching_rule.get('name', '(unnamed)')
+            menu.add_command(
+                label=f'Edit rule: {rule_name}',
+                command=lambda: self._edit_matching_rule(rom_path))
+            menu.add_command(
+                label=f'Delete rule: {rule_name}',
+                foreground=ERROR,
+                command=lambda: self._delete_matching_rule(rom_path))
+        else:
+            menu.add_command(
+                label='Create new rule from this ROM…',
+                command=lambda: self._create_rule_from_rom(rom_path))
+
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _find_matching_rule_smart(self, rom_path: str) -> dict:
+        """Find a matching rule using archive-aware platform detection.
+
+        Like settings._matching_rule but peeks inside .zip/.7z archives
+        to determine the real platform of the ROM inside.
+        """
+        import settings as settings_mod
+        import re as _re
+
+        rules = settings_mod.get_rules()
+        if not rules:
+            return None
+
+        name = os.path.basename(rom_path)
+        real_platform = self._detect_rom_platform(rom_path)
+
+        for rule in rules:
+            pattern = rule.get('pattern', '').strip()
+            if not pattern:
+                continue
+
+            platforms = rule.get('platforms', [])
+            if platforms and real_platform not in platforms:
+                continue
+
+            try:
+                if rule.get('regex', False):
+                    if _re.search(pattern, name, _re.IGNORECASE):
+                        return rule
+                else:
+                    if pattern.lower() in name.lower():
+                        return rule
+            except _re.error:
+                continue
+        return None
+
+    def _edit_matching_rule(self, rom_path: str):
+        """Open the rule editor for the rule that currently matches a ROM."""
+        import settings as settings_mod
+        rules = settings_mod.get_rules()
+        matching = self._find_matching_rule_smart(rom_path)
+        if matching is None:
+            return
+
+        idx = self._find_rule_index(rules, matching)
+        if idx is None:
+            return
+
+        def _save(updated_rule):
+            current = settings_mod.get_rules()
+            if 0 <= idx < len(current):
+                current[idx] = updated_rule
+                settings_mod.save_rules(current)
+                self._log_msg(
+                    f'Updated rule: {updated_rule.get("name", "")}')
+
+        self._open_rule_editor(self, rules[idx], on_save=_save)
+
+    def _delete_matching_rule(self, rom_path: str):
+        """Delete the rule that currently matches a ROM (with confirmation)."""
+        import settings as settings_mod
+        rules = settings_mod.get_rules()
+        matching = self._find_matching_rule_smart(rom_path)
+        if matching is None:
+            return
+
+        idx = self._find_rule_index(rules, matching)
+        if idx is None:
+            return
+
+        rule_name = rules[idx].get('name', '(unnamed)')
+        if not messagebox.askyesno(
+                'Delete rule',
+                f'Delete rule "{rule_name}"?'):
+            return
+
+        del rules[idx]
+        settings_mod.save_rules(rules)
+        self._log_msg(f'Deleted rule: {rule_name}')
+
+    @staticmethod
+    def _find_rule_index(rules: list, target: dict):
+        """Return the index of a rule dict in a list, or None."""
+        try:
+            return next(i for i, r in enumerate(rules)
+                        if r is target or (
+                            r.get('name') == target.get('name') and
+                            r.get('pattern') == target.get('pattern')))
+        except StopIteration:
+            return None
+
+    def _detect_rom_platform(self, rom_path: str) -> str:
+        """Return the platform for a ROM, peeking inside archives if needed."""
+        ext = os.path.splitext(rom_path)[1].lower()
+
+        # For .zip archives, peek inside to find the inner ROM extension
+        if ext == '.zip':
+            try:
+                import zipfile
+                with zipfile.ZipFile(rom_path) as zf:
+                    for name in zf.namelist():
+                        inner_ext = os.path.splitext(name)[1].lower()
+                        if inner_ext in SUPPORTED_EXTENSIONS and \
+                                inner_ext not in ('.zip', '.7z'):
+                            # Use the inner file path for platform detection
+                            # so folder hints (e.g. PlayStation 2) still apply
+                            inner_path = os.path.join(
+                                os.path.dirname(rom_path), name)
+                            return get_platform(inner_path)
+            except Exception:
+                pass
+
+        # For .7z, try to list contents via the bundled 7z.exe
+        if ext == '.7z' and self._7z:
+            try:
+                import subprocess
+                r = subprocess.run(
+                    [self._7z, 'l', '-slt', rom_path],
+                    capture_output=True, text=True, timeout=10,
+                    creationflags=subprocess.CREATE_NO_WINDOW)
+                for line in r.stdout.splitlines():
+                    if line.startswith('Path = '):
+                        name = line[7:].strip()
+                        inner_ext = os.path.splitext(name)[1].lower()
+                        if inner_ext in SUPPORTED_EXTENSIONS and \
+                                inner_ext not in ('.zip', '.7z'):
+                            inner_path = os.path.join(
+                                os.path.dirname(rom_path), name)
+                            return get_platform(inner_path)
+            except Exception:
+                pass
+
+        # Otherwise use the ROM's own extension
+        return get_platform(rom_path)
+
+    def _create_rule_from_rom(self, rom_path: str):
+        """Open the rule editor with fields pre-filled from a ROM path."""
+        import settings as settings_mod
+
+        stem = os.path.splitext(os.path.basename(rom_path))[0]
+        # Strip common region/version tags to get a cleaner default pattern
+        import re as _re
+        clean_stem = _re.sub(r'\s*\([^)]*\)', '', stem).strip()
+        if not clean_stem:
+            clean_stem = stem
+
+        platform = self._detect_rom_platform(rom_path)
+        # Filter out non-game "platforms" like archive types or Unknown
+        non_game = {'ZIP Archive', '7-Zip Archive', 'Unknown',
+                    'Disc Image', 'CD Image', 'CHD Disc'}
+        platforms = [platform] if platform and platform not in non_game else []
+
+        starter = {
+            'name': clean_stem or 'New rule',
+            'pattern': clean_stem.lower() or stem.lower(),
+            'regex': False,
+            'platforms': platforms,
+            'overrides': {},
+        }
+
+        def _save(new_rule):
+            current = settings_mod.get_rules()
+            current.append(new_rule)
+            settings_mod.save_rules(current)
+            self._log_msg(
+                f'Added rule: {new_rule.get("name", "")}')
+
+        self._open_rule_editor(self, starter, on_save=_save, is_new=True)
+
     def _select_all(self):
         for iid in self._tree.get_children():
             tags = list(self._tree.item(iid, 'tags'))
@@ -1246,6 +1640,685 @@ if ($folder -ne $null) {
                     vals[0] = '\u2610'
                 self._tree.item(iid, values=vals, tags=tags)
         self._update_count()
+
+    # ── Game Rules manager ───────────────────────────────────────────────────
+
+    def _open_rules_manager(self):
+        """Open the Game-Specific Rules manager dialog."""
+        import settings as settings_mod
+
+        dlg = tk.Toplevel(self)
+        dlg.title('Game Rules')
+        dlg.geometry('920x500')
+        dlg.minsize(840, 400)
+        dlg.configure(bg=BG)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        tk.Label(dlg, text='Game-Specific Rules',
+                 font=('Segoe UI', 14, 'bold'),
+                 bg=BG, fg=ACCENT
+                 ).pack(anchor='w', padx=16, pady=(12, 4))
+        tk.Label(dlg,
+                 text='Override settings for ROMs whose filename matches '
+                      'a pattern. Useful for series with longer intro '
+                      'audio (e.g. Pokemon, Final Fantasy). Rules are '
+                      'checked in order — the first match wins.',
+                 bg=BG, fg=FG_DIM, font=('Segoe UI', 9),
+                 wraplength=600, justify='left'
+                 ).pack(anchor='w', padx=16, pady=(0, 8))
+
+        # Pack the button frame BEFORE the rules list so it stays
+        # anchored to the bottom regardless of how the list expands.
+        btn_frame = tk.Frame(dlg, bg=BG)
+        btn_frame.pack(side='bottom', fill='x', padx=16, pady=(8, 12))
+
+        # Rules grid — custom Frame-based layout with real Button widgets
+        # for the inline edit/delete actions (Treeview can't color
+        # individual cells or attach hover cursors to columns).
+        list_outer = tk.Frame(dlg, bg=BG_PANEL, bd=1, relief='solid',
+                              highlightbackground=BG_ENTRY)
+        list_outer.pack(fill='both', expand=True, padx=16, pady=4)
+
+        # Header row (fixed, not scrollable)
+        header = tk.Frame(list_outer, bg=BG_ENTRY)
+        header.pack(fill='x', side='top')
+
+        col_specs = [
+            # (key, label, width, anchor)
+            ('name',      'Name',      180, 'w'),
+            ('kind',      'Match',      80, 'center'),
+            ('pattern',   'Pattern',   180, 'w'),
+            ('platforms', 'Platforms', 140, 'w'),
+            ('overrides', 'Overrides',  80, 'center'),
+            ('edit',      '',           36, 'center'),
+            ('delete',    '',           36, 'center'),
+        ]
+        for key, label, width, anchor in col_specs:
+            tk.Label(header, text=label, bg=BG_ENTRY, fg=ACCENT,
+                     font=('Segoe UI', 9, 'bold'),
+                     width=width // 8, anchor=anchor
+                     ).pack(side='left', padx=4, pady=4)
+
+        # Scrollable body
+        body_outer = tk.Frame(list_outer, bg=BG_PANEL)
+        body_outer.pack(fill='both', expand=True)
+
+        canvas = tk.Canvas(body_outer, bg=BG_PANEL, highlightthickness=0)
+        vsb = ttk.Scrollbar(body_outer, orient='vertical',
+                            command=canvas.yview)
+        body_inner = tk.Frame(canvas, bg=BG_PANEL)
+        body_inner.bind(
+            '<Configure>',
+            lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.create_window((0, 0), window=body_inner, anchor='nw')
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.pack(side='left', fill='both', expand=True)
+        vsb.pack(side='right', fill='y')
+
+        empty_label = tk.Label(
+            canvas,
+            text='No rules defined. Click "+ Add Rule" to create one.',
+            bg=BG_PANEL, fg=FG_DIM, font=('Segoe UI', 10, 'italic'))
+
+        def _refresh_rules_list():
+            for w in body_inner.winfo_children():
+                w.destroy()
+            current_rules = settings_mod.get_rules()
+            if not current_rules:
+                empty_label.place(relx=0.5, rely=0.5, anchor='center')
+                return
+            else:
+                empty_label.place_forget()
+
+            for idx, rule in enumerate(current_rules):
+                pattern = rule.get('pattern', '')
+                kind = 'regex' if rule.get('regex') else 'substring'
+                count = len(rule.get('overrides', {}))
+                name = rule.get('name', '(unnamed)')
+                platforms = rule.get('platforms', [])
+                if not platforms:
+                    plat_text = 'any'
+                elif len(platforms) == 1:
+                    plat_text = platforms[0]
+                else:
+                    plat_text = f'{len(platforms)} platforms'
+
+                row_bg = BG_PANEL if idx % 2 == 0 else '#1F1F2F'
+                row = tk.Frame(body_inner, bg=row_bg)
+                row.pack(fill='x')
+
+                values = [name, kind, pattern, plat_text, str(count)]
+                for (key, _label, width, anchor), val in zip(col_specs[:5],
+                                                              values):
+                    fg = FG_DIM if key in ('kind', 'platforms') else FG
+                    tk.Label(row, text=val, bg=row_bg, fg=fg,
+                             font=('Segoe UI', 9),
+                             width=width // 8, anchor=anchor
+                             ).pack(side='left', padx=4, pady=4)
+
+                # Inline action buttons
+                edit_btn = tk.Button(
+                    row, text='Edit', bg=row_bg, fg=ACCENT,
+                    activebackground='#3A3A5D', activeforeground=ACCENT,
+                    relief='flat', bd=0, cursor='hand2',
+                    font=('Segoe UI', 9, 'underline'),
+                    command=lambda i=idx: _edit_rule(i))
+                edit_btn.pack(side='left', padx=4, pady=4)
+
+                del_btn = tk.Button(
+                    row, text='Delete', bg=row_bg, fg=ERROR,
+                    activebackground='#3A3A5D', activeforeground=ERROR,
+                    relief='flat', bd=0, cursor='hand2',
+                    font=('Segoe UI', 9, 'underline'),
+                    command=lambda i=idx: _delete_rule(i))
+                del_btn.pack(side='left', padx=4, pady=4)
+
+        # Mouse wheel scrolling for the rules canvas
+        def _on_rules_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+        canvas.bind_all('<MouseWheel>', _on_rules_mousewheel)
+        dlg.bind('<Destroy>',
+                 lambda e: canvas.unbind_all('<MouseWheel>')
+                 if e.widget == dlg else None)
+
+        def _edit_rule(idx=None):
+            rules = settings_mod.get_rules()
+            existing = rules[idx] if idx is not None else None
+            self._open_rule_editor(
+                dlg, existing,
+                on_save=lambda new_rule: _save_rule(idx, new_rule))
+
+        def _save_rule(idx, new_rule):
+            rules = settings_mod.get_rules()
+            if idx is None:
+                rules.append(new_rule)
+            else:
+                rules[idx] = new_rule
+            settings_mod.save_rules(rules)
+            _refresh_rules_list()
+
+        def _delete_rule(idx):
+            rules = settings_mod.get_rules()
+            if 0 <= idx < len(rules):
+                name = rules[idx].get('name', '(unnamed)')
+                if messagebox.askyesno(
+                        'Delete rule',
+                        f'Delete rule "{name}"?', parent=dlg):
+                    del rules[idx]
+                    settings_mod.save_rules(rules)
+                    _refresh_rules_list()
+
+        def _export_rules():
+            current_rules = settings_mod.get_rules()
+            if not current_rules:
+                messagebox.showinfo('No rules',
+                                    'There are no rules to export.',
+                                    parent=dlg)
+                return
+            path = filedialog.asksaveasfilename(
+                parent=dlg,
+                title='Export rules',
+                defaultextension='.json',
+                initialfile='jingles_rules.json',
+                filetypes=[('JSON files', '*.json'),
+                           ('All files', '*.*')])
+            if not path:
+                return
+            try:
+                count = settings_mod.export_rules(path)
+                self._log_msg(f'Exported {count} rule(s) to {path}')
+                messagebox.showinfo(
+                    'Export complete',
+                    f'Exported {count} rule(s) to:\n{path}', parent=dlg)
+            except Exception as e:
+                messagebox.showerror('Export failed', str(e), parent=dlg)
+
+        def _import_rules():
+            path = filedialog.askopenfilename(
+                parent=dlg,
+                title='Import rules',
+                filetypes=[('JSON files', '*.json'),
+                           ('All files', '*.*')])
+            if not path:
+                return
+            try:
+                imported = settings_mod.load_rules_file(path)
+            except Exception as e:
+                messagebox.showerror(
+                    'Import failed',
+                    f'Could not read rules file:\n{e}', parent=dlg)
+                return
+
+            if not imported:
+                messagebox.showwarning(
+                    'No rules found',
+                    'The selected file did not contain any valid rules.',
+                    parent=dlg)
+                return
+
+            current_count = len(settings_mod.get_rules())
+            if current_count == 0:
+                settings_mod.replace_rules(imported)
+                self._log_msg(f'Imported {len(imported)} rule(s)')
+                _refresh_rules_list()
+                messagebox.showinfo(
+                    'Import complete',
+                    f'Imported {len(imported)} rule(s).', parent=dlg)
+                return
+
+            choice = messagebox.askyesnocancel(
+                'Import rules',
+                f'Found {len(imported)} rule(s) in the file.\n\n'
+                f'Yes  →  Merge with your {current_count} existing rule(s) '
+                f'(duplicates are renamed)\n'
+                f'No   →  Replace all existing rules with the imported set\n'
+                f'Cancel → Do nothing',
+                parent=dlg)
+            if choice is None:
+                return
+            if choice:
+                added, renamed = settings_mod.merge_rules(imported)
+                msg = f'Merged {added} rule(s)'
+                if renamed:
+                    msg += f' ({renamed} renamed to avoid conflicts)'
+                self._log_msg(msg)
+                messagebox.showinfo('Import complete', msg, parent=dlg)
+            else:
+                if not messagebox.askyesno(
+                        'Replace all rules',
+                        f'This will delete all {current_count} '
+                        f'existing rule(s) and replace them with the '
+                        f'{len(imported)} imported rule(s). Continue?',
+                        parent=dlg):
+                    return
+                settings_mod.replace_rules(imported)
+                msg = f'Replaced existing rules with {len(imported)} imported'
+                self._log_msg(msg)
+                messagebox.showinfo('Import complete', msg, parent=dlg)
+            _refresh_rules_list()
+
+        _refresh_rules_list()
+
+        # Action buttons (btn_frame was created and packed at the
+        # bottom of the dialog earlier; we just add buttons to it here).
+        tk.Button(btn_frame, text='+ Add Rule',
+                  command=lambda: _edit_rule(None),
+                  bg=ACCENT, fg=BG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 10, 'bold'),
+                  activebackground='#74A8F0'
+                  ).pack(side='left', padx=(0, 4))
+        tk.Button(btn_frame, text='Export…',
+                  command=_export_rules,
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 10),
+                  activebackground='#3A3A5D'
+                  ).pack(side='left', padx=4)
+        tk.Button(btn_frame, text='Import…',
+                  command=_import_rules,
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 10),
+                  activebackground='#3A3A5D'
+                  ).pack(side='left', padx=4)
+
+        tk.Button(btn_frame, text='Close', width=10,
+                  command=dlg.destroy,
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 10),
+                  activebackground='#3A3A5D'
+                  ).pack(side='right')
+
+    # ── Settings dialog ──────────────────────────────────────────────────────
+
+    def _open_settings(self):
+        """Open a dialog to edit user-configurable defaults."""
+        import settings as settings_mod
+
+        dlg = tk.Toplevel(self)
+        dlg.title('Settings')
+        dlg.geometry('560x520')
+        dlg.configure(bg=BG)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        tk.Label(dlg, text='Settings', font=('Segoe UI', 14, 'bold'),
+                 bg=BG, fg=ACCENT).pack(anchor='w', padx=16, pady=(12, 4))
+        tk.Label(dlg,
+                 text='Defaults for output clipping and emulation timing. '
+                      'Changes apply to the next file processed.',
+                 bg=BG, fg=FG_DIM, font=('Segoe UI', 9)
+                 ).pack(anchor='w', padx=16)
+
+        # Scrollable area
+        outer = tk.Frame(dlg, bg=BG)
+        outer.pack(fill='both', expand=True, padx=16, pady=8)
+        canvas = tk.Canvas(outer, bg=BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(outer, orient='vertical',
+                                  command=canvas.yview)
+        inner = tk.Frame(canvas, bg=BG)
+        inner.bind('<Configure>',
+                   lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.create_window((0, 0), window=inner, anchor='nw')
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        # Group settings by their group field, in declaration order
+        current = settings_mod.get_all()
+        rows = {}  # key -> tk.StringVar holding the editable value
+
+        seen_groups = []
+        grouped = {}
+        for key, (default, type_, label, desc, group) in settings_mod.DEFAULTS.items():
+            if group not in grouped:
+                grouped[group] = []
+                seen_groups.append(group)
+            grouped[group].append((key, default, type_, label, desc))
+
+        for group in seen_groups:
+            # Group header
+            tk.Label(inner, text=group, font=('Segoe UI', 11, 'bold'),
+                     bg=BG, fg=ACCENT
+                     ).pack(anchor='w', pady=(8, 2))
+
+            for key, default, type_, label, desc in grouped[group]:
+                row = tk.Frame(inner, bg=BG)
+                row.pack(fill='x', pady=2)
+
+                tk.Label(row, text=label, bg=BG, fg=FG,
+                         font=('Segoe UI', 9), width=28, anchor='w'
+                         ).pack(side='left')
+
+                var = tk.StringVar(value=str(current[key]))
+                rows[key] = var
+                entry = tk.Entry(row, textvariable=var, bg=BG_ENTRY, fg=FG,
+                                 insertbackground=FG, relief='flat',
+                                 font=('Segoe UI', 9), width=12)
+                entry.pack(side='left', padx=(0, 8))
+
+                tk.Label(row, text=f'(default: {default})',
+                         bg=BG, fg=FG_DIM, font=('Segoe UI', 8)
+                         ).pack(side='left')
+
+                tk.Label(inner, text=desc, bg=BG, fg=FG_DIM,
+                         font=('Segoe UI', 8), wraplength=480, justify='left'
+                         ).pack(anchor='w', padx=(12, 0), pady=(0, 4))
+
+        # Buttons
+        btn_frame = tk.Frame(dlg, bg=BG)
+        btn_frame.pack(fill='x', padx=16, pady=(0, 12))
+
+        def _save():
+            values = {}
+            errors = []
+            for key, var in rows.items():
+                default, type_, label, *_ = settings_mod.DEFAULTS[key]
+                raw = var.get().strip()
+                if not raw:
+                    values[key] = default
+                    continue
+                try:
+                    values[key] = type_(raw)
+                except (TypeError, ValueError):
+                    errors.append(f'{label}: not a valid {type_.__name__}')
+            if errors:
+                messagebox.showerror('Invalid input', '\n'.join(errors),
+                                     parent=dlg)
+                return
+            settings_mod.save(values)
+            self._log_msg('Settings saved.')
+            dlg.destroy()
+
+        def _reset():
+            if not messagebox.askyesno(
+                    'Reset settings',
+                    'Reset all settings to their default values?',
+                    parent=dlg):
+                return
+            settings_mod.reset_to_defaults()
+            self._log_msg('Settings reset to defaults.')
+            dlg.destroy()
+            self._open_settings()
+
+        tk.Button(btn_frame, text='Save', width=10,
+                  command=_save,
+                  bg=SUCCESS, fg=BG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 10, 'bold')
+                  ).pack(side='right', padx=(8, 0))
+        tk.Button(btn_frame, text='Cancel', width=10,
+                  command=dlg.destroy,
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 10)
+                  ).pack(side='right')
+        tk.Button(btn_frame, text='Reset to Defaults', width=18,
+                  command=_reset,
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 10)
+                  ).pack(side='left')
+
+        # Mouse wheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+        canvas.bind_all('<MouseWheel>', _on_mousewheel)
+        dlg.bind('<Destroy>',
+                 lambda e: canvas.unbind_all('<MouseWheel>')
+                 if e.widget == dlg else None)
+
+    # ── Rule editor sub-dialog ───────────────────────────────────────────────
+
+    def _open_rule_editor(self, parent, existing_rule=None, on_save=None,
+                          is_new=False):
+        """Open a dialog to add or edit a single game-specific rule.
+
+        Args:
+            parent:        Parent widget.
+            existing_rule: Rule dict to edit (or pre-fill from). None for
+                           a blank new rule.
+            on_save:       Callback receiving the saved rule dict.
+            is_new:        If True, treat existing_rule as starter values
+                           for a new rule (changes the dialog title).
+        """
+        import settings as settings_mod
+
+        dlg = tk.Toplevel(parent)
+        if is_new or not existing_rule:
+            dlg.title('Add Rule')
+        else:
+            dlg.title('Edit Rule')
+        dlg.geometry('700x860')
+        dlg.minsize(640, 600)
+        dlg.configure(bg=BG)
+        dlg.transient(parent)
+        dlg.grab_set()
+
+        existing = existing_rule or {}
+
+        tk.Label(dlg, text='Game Rule', font=('Segoe UI', 13, 'bold'),
+                 bg=BG, fg=ACCENT
+                 ).pack(anchor='w', padx=16, pady=(12, 4))
+        tk.Label(dlg,
+                 text='Settings here override the global defaults for ROMs '
+                      'whose filename matches the pattern below.',
+                 bg=BG, fg=FG_DIM, font=('Segoe UI', 9), wraplength=520,
+                 justify='left'
+                 ).pack(anchor='w', padx=16)
+
+        # Name + pattern
+        meta_frame = tk.Frame(dlg, bg=BG)
+        meta_frame.pack(fill='x', padx=16, pady=8)
+
+        tk.Label(meta_frame, text='Name:', bg=BG, fg=FG,
+                 font=('Segoe UI', 9), width=10, anchor='e'
+                 ).grid(row=0, column=0, sticky='e', pady=2)
+        name_var = tk.StringVar(value=existing.get('name', ''))
+        tk.Entry(meta_frame, textvariable=name_var, bg=BG_ENTRY, fg=FG,
+                 insertbackground=FG, relief='flat', font=('Segoe UI', 9)
+                 ).grid(row=0, column=1, sticky='ew', padx=4, pady=2)
+
+        tk.Label(meta_frame, text='Pattern:', bg=BG, fg=FG,
+                 font=('Segoe UI', 9), width=10, anchor='e'
+                 ).grid(row=1, column=0, sticky='e', pady=2)
+        pattern_var = tk.StringVar(value=existing.get('pattern', ''))
+        tk.Entry(meta_frame, textvariable=pattern_var, bg=BG_ENTRY, fg=FG,
+                 insertbackground=FG, relief='flat', font=('Segoe UI', 9)
+                 ).grid(row=1, column=1, sticky='ew', padx=4, pady=2)
+
+        regex_var = tk.BooleanVar(value=existing.get('regex', False))
+        ttk.Checkbutton(meta_frame, text='Use regular expression',
+                        variable=regex_var,
+                        style='Jingles.TCheckbutton'
+                        ).grid(row=2, column=1, sticky='w', padx=4, pady=2)
+
+        meta_frame.columnconfigure(1, weight=1)
+
+        tk.Label(dlg,
+                 text='Pattern is matched against the ROM filename '
+                      '(case-insensitive). Substring match by default; '
+                      'check the box for regex.',
+                 bg=BG, fg=FG_DIM, font=('Segoe UI', 8),
+                 wraplength=600, justify='left'
+                 ).pack(anchor='w', padx=16)
+
+        # ── Platforms section ────────────────────────────────────────────
+        tk.Label(dlg, text='Platforms',
+                 font=('Segoe UI', 11, 'bold'),
+                 bg=BG, fg=ACCENT
+                 ).pack(anchor='w', padx=16, pady=(12, 2))
+        tk.Label(dlg,
+                 text='Restrict this rule to specific platforms. Leave all '
+                      'unchecked to apply to any platform.',
+                 bg=BG, fg=FG_DIM, font=('Segoe UI', 8),
+                 wraplength=600, justify='left'
+                 ).pack(anchor='w', padx=16)
+
+        plat_outer = tk.Frame(dlg, bg=BG_PANEL, height=120)
+        plat_outer.pack(fill='x', padx=16, pady=4)
+        plat_outer.pack_propagate(False)
+        plat_canvas = tk.Canvas(plat_outer, bg=BG_PANEL,
+                                highlightthickness=0)
+        plat_sb = ttk.Scrollbar(plat_outer, orient='vertical',
+                                command=plat_canvas.yview)
+        plat_inner = tk.Frame(plat_canvas, bg=BG_PANEL)
+        plat_inner.bind(
+            '<Configure>',
+            lambda e: plat_canvas.configure(
+                scrollregion=plat_canvas.bbox('all')))
+        plat_canvas.create_window((0, 0), window=plat_inner, anchor='nw')
+        plat_canvas.configure(yscrollcommand=plat_sb.set)
+        plat_canvas.pack(side='left', fill='both', expand=True)
+        plat_sb.pack(side='right', fill='y')
+
+        # Build platform list (unique, sorted)
+        unique_platforms = sorted(set(PLATFORM_NAMES.values()))
+        existing_platforms = set(existing.get('platforms', []))
+        platform_vars = {}  # platform name -> BooleanVar
+
+        # Layout in 3 columns for compactness
+        for i, plat in enumerate(unique_platforms):
+            var = tk.BooleanVar(value=(plat in existing_platforms))
+            platform_vars[plat] = var
+            cb = ttk.Checkbutton(plat_inner, text=plat, variable=var,
+                                 style='Jingles.TCheckbutton')
+            cb.grid(row=i // 3, column=i % 3, sticky='w', padx=8, pady=1)
+
+        # Quick action buttons for platforms
+        plat_btns = tk.Frame(dlg, bg=BG)
+        plat_btns.pack(fill='x', padx=16, pady=(2, 0))
+
+        def _platforms_clear():
+            for v in platform_vars.values():
+                v.set(False)
+
+        tk.Button(plat_btns, text='Clear All', command=_platforms_clear,
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 8), activebackground='#3A3A5D'
+                  ).pack(side='left')
+
+        # Overrides — scrollable list of all settings with checkboxes
+        tk.Label(dlg, text='Overrides',
+                 font=('Segoe UI', 11, 'bold'),
+                 bg=BG, fg=ACCENT
+                 ).pack(anchor='w', padx=16, pady=(12, 2))
+        tk.Label(dlg,
+                 text='Check a setting and enter a value to override it. '
+                      'Unchecked settings use the global default.',
+                 bg=BG, fg=FG_DIM, font=('Segoe UI', 8),
+                 wraplength=600, justify='left'
+                 ).pack(anchor='w', padx=16)
+
+        # Pack the button frame BEFORE the scrollable overrides so it
+        # stays anchored to the bottom of the window even when the
+        # window is shorter than the natural content height.
+        btn_frame = tk.Frame(dlg, bg=BG)
+        btn_frame.pack(side='bottom', fill='x', padx=16, pady=(0, 12))
+
+        outer = tk.Frame(dlg, bg=BG)
+        outer.pack(fill='both', expand=True, padx=16, pady=4)
+        canvas = tk.Canvas(outer, bg=BG, highlightthickness=0)
+        sb = ttk.Scrollbar(outer, orient='vertical', command=canvas.yview)
+        inner = tk.Frame(canvas, bg=BG)
+        inner.bind('<Configure>',
+                   lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.create_window((0, 0), window=inner, anchor='nw')
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side='left', fill='both', expand=True)
+        sb.pack(side='right', fill='y')
+
+        existing_overrides = existing.get('overrides', {})
+        override_widgets = {}  # key -> (BooleanVar, StringVar)
+
+        for key, (default, type_, label, desc, group) in \
+                settings_mod.DEFAULTS.items():
+            row = tk.Frame(inner, bg=BG)
+            row.pack(fill='x', pady=1)
+
+            enabled = key in existing_overrides
+            enabled_var = tk.BooleanVar(value=enabled)
+            value_var = tk.StringVar(
+                value=str(existing_overrides.get(key, default)))
+
+            cb = ttk.Checkbutton(row, variable=enabled_var,
+                                 style='Jingles.TCheckbutton')
+            cb.pack(side='left')
+
+            tk.Label(row, text=label, bg=BG, fg=FG,
+                     font=('Segoe UI', 9), width=26, anchor='w'
+                     ).pack(side='left')
+            tk.Entry(row, textvariable=value_var, bg=BG_ENTRY, fg=FG,
+                     insertbackground=FG, relief='flat',
+                     font=('Segoe UI', 9), width=12
+                     ).pack(side='left', padx=(0, 8))
+            tk.Label(row, text=f'({group}, default: {default})',
+                     bg=BG, fg=FG_DIM, font=('Segoe UI', 8)
+                     ).pack(side='left')
+
+            override_widgets[key] = (enabled_var, value_var)
+
+        def _save():
+            name = name_var.get().strip()
+            pattern = pattern_var.get().strip()
+            if not name:
+                messagebox.showerror('Missing name',
+                                     'Please enter a name for this rule.',
+                                     parent=dlg)
+                return
+            if not pattern:
+                messagebox.showerror('Missing pattern',
+                                     'Please enter a pattern.', parent=dlg)
+                return
+
+            # Validate regex if enabled
+            if regex_var.get():
+                try:
+                    import re
+                    re.compile(pattern)
+                except re.error as e:
+                    messagebox.showerror('Invalid regex',
+                                         f'Pattern is not valid regex:\n{e}',
+                                         parent=dlg)
+                    return
+
+            overrides = {}
+            errors = []
+            for key, (enabled_var, value_var) in override_widgets.items():
+                if not enabled_var.get():
+                    continue
+                default, type_, label, *_ = settings_mod.DEFAULTS[key]
+                raw = value_var.get().strip()
+                try:
+                    overrides[key] = type_(raw)
+                except (TypeError, ValueError):
+                    errors.append(f'{label}: not a valid {type_.__name__}')
+
+            if errors:
+                messagebox.showerror('Invalid input',
+                                     '\n'.join(errors), parent=dlg)
+                return
+
+            selected_platforms = sorted(
+                p for p, v in platform_vars.items() if v.get())
+
+            new_rule = {
+                'name': name,
+                'pattern': pattern,
+                'regex': regex_var.get(),
+                'platforms': selected_platforms,
+                'overrides': overrides,
+            }
+            if on_save:
+                on_save(new_rule)
+            dlg.destroy()
+
+        tk.Button(btn_frame, text='Save', width=10,
+                  command=_save,
+                  bg=SUCCESS, fg=BG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 10, 'bold')
+                  ).pack(side='right', padx=(8, 0))
+        tk.Button(btn_frame, text='Cancel', width=10,
+                  command=dlg.destroy,
+                  bg=BG_ENTRY, fg=FG, relief='flat', cursor='hand2',
+                  font=('Segoe UI', 10)
+                  ).pack(side='right')
 
     # ── Log ──────────────────────────────────────────────────────────────────
 

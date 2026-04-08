@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "name": "Mega Man (Capcom intro)",
+      "pattern": "mega man|megaman|rockman",
+      "regex": true,
+      "platforms": ["NES", "SNES", "Game Boy", "Game Boy Advance", "Nintendo DS"],
+      "overrides": {
+        "retroarch_capture_frames": 1500,
+        "clip_max_secs": 8.0
+      }
+    },
+    {
+      "name": "Castlevania (Konami intro)",
+      "pattern": "castlevania",
+      "regex": false,
+      "platforms": ["NES", "SNES", "Game Boy", "Game Boy Advance", "Nintendo DS"],
+      "overrides": {
+        "retroarch_capture_frames": 1500,
+        "clip_max_secs": 8.0
+      }
+    },
+    {
+      "name": "Metal Gear (Konami long intro)",
+      "pattern": "metal gear",
+      "regex": false,
+      "platforms": [],
+      "overrides": {
+        "retroarch_capture_frames": 3000,
+        "clip_max_secs": 12.0,
+        "ps2_turbo_boot_secs": 8,
+        "ps2_record_secs": 12
+      }
+    },
+    {
+      "name": "Sonic the Hedgehog (Sega logo)",
+      "pattern": "sonic",
+      "regex": false,
+      "platforms": ["Genesis", "Master System", "Game Gear", "Game Boy Advance", "Nintendo DS"],
+      "overrides": {
+        "retroarch_capture_frames": 1500,
+        "clip_max_secs": 8.0
+      }
+    },
+    {
+      "name": "Zelda (Nintendo intro)",
+      "pattern": "zelda",
+      "regex": false,
+      "platforms": ["NES", "SNES", "Game Boy", "Game Boy Color", "Game Boy Advance", "Nintendo 64", "Nintendo DS", "Nintendo 3DS"],
+      "overrides": {
+        "retroarch_capture_frames": 1800,
+        "clip_max_secs": 10.0
+      }
+    },
+    {
+      "name": "Super Mario (Nintendo intro)",
+      "pattern": "super mario|mario bros|mario land|mario world|new super mario",
+      "regex": true,
+      "platforms": ["NES", "SNES", "Game Boy", "Game Boy Color", "Game Boy Advance", "Nintendo 64", "Nintendo DS", "Nintendo 3DS"],
+      "overrides": {
+        "retroarch_capture_frames": 1500,
+        "clip_max_secs": 8.0
+      }
+    },
+    {
+      "name": "Kirby (HAL Lab intro)",
+      "pattern": "kirby",
+      "regex": false,
+      "platforms": ["NES", "SNES", "Game Boy", "Game Boy Color", "Game Boy Advance", "Nintendo 64", "Nintendo DS", "Nintendo 3DS"],
+      "overrides": {
+        "retroarch_capture_frames": 1500,
+        "clip_max_secs": 8.0
+      }
+    },
+    {
+      "name": "Metroid (Nintendo intro)",
+      "pattern": "metroid",
+      "regex": false,
+      "platforms": ["NES", "SNES", "Game Boy", "Game Boy Advance", "Nintendo DS", "Nintendo 3DS"],
+      "overrides": {
+        "retroarch_capture_frames": 2400,
+        "clip_max_secs": 10.0
+      }
+    },
+    {
+      "name": "Mother / EarthBound",
+      "pattern": "earthbound|mother 3|mother3",
+      "regex": true,
+      "platforms": [],
+      "overrides": {
+        "retroarch_capture_frames": 1800,
+        "clip_max_secs": 10.0
+      }
+    },
+    {
+      "name": "Fire Emblem",
+      "pattern": "fire emblem",
+      "regex": false,
+      "platforms": [],
+      "overrides": {
+        "retroarch_capture_frames": 2400,
+        "clip_max_secs": 10.0
+      }
+    },
+    {
+      "name": "Advance Wars",
+      "pattern": "advance wars",
+      "regex": false,
+      "platforms": ["Game Boy Advance", "Nintendo DS"],
+      "overrides": {
+        "retroarch_capture_frames": 1800,
+        "clip_max_secs": 8.0
+      }
+    },
+    {
+      "name": "Mario Kart",
+      "pattern": "mario kart",
+      "regex": false,
+      "platforms": [],
+      "overrides": {
+        "retroarch_capture_frames": 1800,
+        "clip_max_secs": 10.0
+      }
+    },
+    {
+      "name": "Resident Evil (Capcom intros)",
+      "pattern": "resident evil|biohazard",
+      "regex": true,
+      "platforms": [],
+      "overrides": {
+        "retroarch_capture_frames": 3000,
+        "clip_max_secs": 12.0,
+        "ps2_turbo_boot_secs": 8,
+        "ps2_record_secs": 12
+      }
+    },
+    {
+      "name": "Street Fighter / Versus games",
+      "pattern": "street fighter|king of fighters|marvel vs|capcom vs",
+      "regex": true,
+      "platforms": [],
+      "overrides": {
+        "retroarch_capture_frames": 2400,
+        "clip_max_secs": 10.0
+      }
+    }
+  ]
+}

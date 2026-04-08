@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "name": "Final Fantasy (NES/SNES)",
+      "pattern": "final fantasy",
+      "regex": false,
+      "platforms": ["NES", "SNES"],
+      "overrides": {
+        "retroarch_capture_frames": 1500,
+        "clip_max_secs": 8.0
+      }
+    },
+    {
+      "name": "Final Fantasy (GBA)",
+      "pattern": "final fantasy",
+      "regex": false,
+      "platforms": ["Game Boy Advance"],
+      "overrides": {
+        "retroarch_capture_frames": 1800,
+        "clip_max_secs": 10.0
+      }
+    },
+    {
+      "name": "Final Fantasy (DS)",
+      "pattern": "final fantasy",
+      "regex": false,
+      "platforms": ["Nintendo DS"],
+      "overrides": {
+        "retroarch_capture_frames": 2400,
+        "clip_max_secs": 10.0
+      }
+    },
+    {
+      "name": "Final Fantasy (PSP)",
+      "pattern": "final fantasy",
+      "regex": false,
+      "platforms": ["PSP"],
+      "overrides": {
+        "retroarch_capture_frames": 3000,
+        "clip_max_secs": 12.0
+      }
+    },
+    {
+      "name": "Final Fantasy (PlayStation)",
+      "pattern": "final fantasy",
+      "regex": false,
+      "platforms": ["PlayStation"],
+      "overrides": {
+        "retroarch_capture_frames": 3600,
+        "clip_max_secs": 12.0
+      }
+    },
+    {
+      "name": "Final Fantasy (PS2)",
+      "pattern": "final fantasy|dirge of cerberus",
+      "regex": true,
+      "platforms": ["PlayStation 2"],
+      "overrides": {
+        "ps2_turbo_boot_secs": 8,
+        "ps2_record_secs": 12,
+        "clip_max_secs": 12.0
+      }
+    },
+    {
+      "name": "Chrono Trigger / Cross",
+      "pattern": "chrono",
+      "regex": false,
+      "platforms": ["SNES", "PlayStation", "Nintendo DS"],
+      "overrides": {
+        "retroarch_capture_frames": 1800,
+        "clip_max_secs": 10.0
+      }
+    },
+    {
+      "name": "Square Enix RPG (long intros)",
+      "pattern": "kingdom hearts|dragon quest|dragon warrior|nier|romancing saga|saga frontier",
+      "regex": true,
+      "platforms": [],
+      "overrides": {
+        "retroarch_capture_frames": 2700,
+        "clip_max_secs": 12.0
+      }
+    }
+  ]
+}

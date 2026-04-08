@@ -165,7 +165,8 @@ class ProcessingWorker:
                     samples, rate, channels = result
                     write_wav(samples, rate, channels, tmp_wav)
                     wav_to_mp3(tmp_wav, mp3_path, self._ffmpeg,
-                               title=stem, trim=False)
+                               title=stem, trim=False,
+                               rom_path=actual_rom_path)
                     self._log(f'Banner audio: {stem}')
                     return True
 
@@ -173,7 +174,8 @@ class ProcessingWorker:
             if self._vgmstream:
                 vgs = VgmstreamExtractor()
                 if vgs.extract_to_wav(actual_rom_path, tmp_wav, self._vgmstream):
-                    wav_to_mp3(tmp_wav, mp3_path, self._ffmpeg, title=stem)
+                    wav_to_mp3(tmp_wav, mp3_path, self._ffmpeg, title=stem,
+                               rom_path=actual_rom_path)
                     self._log(f'vgmstream audio: {stem}')
                     return True
 
@@ -185,11 +187,15 @@ class ProcessingWorker:
                 core = self._retroarch.find_core(inner_ext, actual_rom_path)
                 if core:
                     core_name = Path(core).name
-                    from extractors.retroarch import _CAPTURE_FRAMES_OVERRIDE, \
-                        _CAPTURE_FRAMES_DEFAULT
+                    import settings
+                    from extractors.retroarch import _CAPTURE_FRAMES_OVERRIDE
+                    user_default = settings.get_for_rom(
+                        'retroarch_capture_frames', actual_rom_path)
                     base_frames = _CAPTURE_FRAMES_OVERRIDE.get(
-                        inner_ext, _CAPTURE_FRAMES_DEFAULT)
-                    max_frames = base_frames * 3
+                        inner_ext, user_default)
+                    max_mult = max(1, settings.get_for_rom(
+                        'retroarch_capture_max_multiplier', actual_rom_path))
+                    max_frames = base_frames * max_mult
 
                     # Attempts: default, 2×, 3×, then 5× with Start+A input
                     # The 4th attempt needs extra frames to cover the time
@@ -220,7 +226,7 @@ class ProcessingWorker:
                             send_start=send_start)
                         if ok:
                             wav_to_mp3(tmp_wav, mp3_path, self._ffmpeg,
-                                       title=stem)
+                                       title=stem, rom_path=actual_rom_path)
                             self._log(f'Emulation audio ({core_name}): {stem}')
                             return True
 
@@ -238,7 +244,8 @@ class ProcessingWorker:
                 ok, reason = ps2.extract_to_wav(
                     actual_rom_path, tmp_wav, self._ffmpeg)
                 if ok:
-                    wav_to_mp3(tmp_wav, mp3_path, self._ffmpeg, title=stem)
+                    wav_to_mp3(tmp_wav, mp3_path, self._ffmpeg, title=stem,
+                               rom_path=actual_rom_path)
                     self._log(f'PCSX2 audio: {stem}')
                     return True
                 else:
@@ -248,7 +255,8 @@ class ProcessingWorker:
             if self._ffmpeg:
                 generic = GenericExtractor()
                 if generic.extract_to_wav(actual_rom_path, tmp_wav, self._ffmpeg):
-                    wav_to_mp3(tmp_wav, mp3_path, self._ffmpeg, title=stem)
+                    wav_to_mp3(tmp_wav, mp3_path, self._ffmpeg, title=stem,
+                               rom_path=actual_rom_path)
                     self._log(f'FFmpeg audio: {stem}')
                     return True
 

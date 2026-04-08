@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "name": "Pokemon (Game Boy / Color)",
+      "pattern": "pokemon",
+      "regex": false,
+      "platforms": ["Game Boy", "Game Boy Color"],
+      "overrides": {
+        "retroarch_capture_frames": 1500,
+        "clip_max_secs": 8.0
+      }
+    },
+    {
+      "name": "Pokemon (GBA)",
+      "pattern": "pokemon",
+      "regex": false,
+      "platforms": ["Game Boy Advance"],
+      "overrides": {
+        "retroarch_capture_frames": 2400,
+        "clip_max_secs": 10.0
+      }
+    },
+    {
+      "name": "Pokemon (DS)",
+      "pattern": "pokemon",
+      "regex": false,
+      "platforms": ["Nintendo DS", "Nintendo DSi"],
+      "overrides": {
+        "retroarch_capture_frames": 2700,
+        "clip_max_secs": 10.0
+      }
+    },
+    {
+      "name": "Pokemon (3DS)",
+      "pattern": "pokemon",
+      "regex": false,
+      "platforms": ["Nintendo 3DS", "3DS CIA"],
+      "overrides": {
+        "retroarch_capture_frames": 3000,
+        "clip_max_secs": 10.0
+      }
+    },
+    {
+      "name": "Pokemon Mystery Dungeon",
+      "pattern": "mystery dungeon",
+      "regex": false,
+      "platforms": ["Nintendo DS", "Game Boy Advance"],
+      "overrides": {
+        "retroarch_capture_frames": 2400,
+        "clip_max_secs": 10.0
+      }
+    },
+    {
+      "name": "Pokemon Ranger",
+      "pattern": "pokemon ranger",
+      "regex": false,
+      "platforms": ["Nintendo DS"],
+      "overrides": {
+        "retroarch_capture_frames": 2400,
+        "clip_max_secs": 10.0
+      }
+    }
+  ]
+}

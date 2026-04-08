@@ -17,14 +17,7 @@ import wave
 
 from pathlib import Path
 
-# Seconds to run turbo boot (fast-forwarding past logos/intros).
-_TURBO_BOOT_SECS = 3
-
-# Seconds to wait at normal speed before recording (let audio stabilize).
-_SETTLE_SECS = 2
-
-# Recording duration (seconds) at normal emulation speed.
-_RECORD_SECS = 8
+import settings
 
 
 def find_pcsx2() -> str | None:
@@ -137,7 +130,7 @@ class Ps2Extractor:
                     _send_key(hwnd, 0x09, 0x0F)  # Tab = ToggleTurbo
 
                 # During turbo boot, periodically press buttons to dismiss
-                time.sleep(_TURBO_BOOT_SECS)
+                time.sleep(settings.get_for_rom('ps2_turbo_boot_secs', rom_path))
 
                 # Disable turbo (Tab again) for accurate audio
                 hwnd = _find_hwnd(proc.pid)
@@ -155,12 +148,14 @@ class Ps2Extractor:
                     time.sleep(1.0)
 
                 # Let audio settle
-                time.sleep(_SETTLE_SECS)
+                time.sleep(settings.get_for_rom('ps2_settle_secs', rom_path))
 
                 # Record loopback audio
                 raw_wav = wav_path.replace('.wav', '_ps2_raw.wav')
-                self._record_loopback(p, pyaudio, loopback, rate, channels,
-                                      _RECORD_SECS, raw_wav)
+                self._record_loopback(
+                    p, pyaudio, loopback, rate, channels,
+                    settings.get_for_rom('ps2_record_secs', rom_path),
+                    raw_wav)
             finally:
                 proc.kill()
                 try:
